@@ -1,0 +1,13 @@
+<network-security-config>
+    <!-- Allow HTTP only for your specific IP -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">52.13.210.196</domain>
+    </domain-config>
+    
+    <!-- Default: HTTPS required for all other domains -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

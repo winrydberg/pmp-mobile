@@ -1,3 +1,4 @@
+import './gesture-handler';
 /**
  * Sample React Native App
  * https://github.com/facebook/react-native
@@ -23,6 +24,15 @@ import {
   LearnMoreLinks,
   ReloadInstructions,
 } from 'react-native/Libraries/NewAppScreen';
+
+import {Button, lightColors, createTheme, ThemeProvider} from '@rneui/themed';
+import {Platform} from 'react-native';
+import {NavigationContainer} from '@react-navigation/native';
+import {AuthProvider} from './src/Context/AuthContext';
+import RootNavigator from './src/Navigations/RootNavigator';
+import Toast from 'react-native-toast-message';
+import {Provider} from 'react-redux';
+import {store} from './src/store/store';
 
 type SectionProps = PropsWithChildren<{
   title: string;
@@ -54,13 +64,43 @@ function Section({children, title}: SectionProps): React.JSX.Element {
   );
 }
 
+// const theme = createTheme({
+//   lightColors: {
+//     ...Platform.select({
+//       default: lightColors.platform.android,
+//       ios: lightColors.platform.ios,
+//     }),
+//   },
+// });
+
+const theme = createTheme({
+  components: {
+    Button: {
+      buttonStyle: {
+        // borderRadius: 8,
+      },
+      titleStyle: {
+        fontWeight: 'normal',
+      },
+      // Different types of buttons
+      // raised: true,
+      type: 'solid', // 'solid' | 'clear' | 'outline'
+    },
+    // colors: {
+    //   primary: '#4a8cff',
+    //   secondary: '#ff8c4a',
+    // },
+    lightColors: {
+      primary: 'red',
+    },
+    darkColors: {
+      primary: 'green',
+    },
+    mode: 'light', // or 'dark'
+  },
+});
+
 function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
-  };
-
   /*
    * To keep the template simple and small we're adding padding to prevent view
    * from rendering under the System UI.
@@ -70,42 +110,25 @@ function App(): React.JSX.Element {
    * You can read more about it here:
    * https://github.com/react-native-community/discussions-and-proposals/discussions/827
    */
+
+      //   <!-- android:networkSecurityConfig="@xml/network_security_config" -->
+      // <!-- android:usesCleartextTraffic="true" -->
+
+
   const safePadding = '5%';
 
   return (
-    <View style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        style={backgroundStyle}>
-        <View style={{paddingRight: safePadding}}>
-          <Header/>
-        </View>
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-            paddingHorizontal: safePadding,
-            paddingBottom: safePadding,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </View>
+    <Provider store={store}>
+      <ThemeProvider theme={theme}>
+        <Toast />
+        <NavigationContainer>
+          <AuthProvider>
+            <Toast />
+            <RootNavigator />
+          </AuthProvider>
+        </NavigationContainer>
+      </ThemeProvider>
+    </Provider>
   );
 }
 
