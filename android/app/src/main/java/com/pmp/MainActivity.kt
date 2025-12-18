@@ -1,4 +1,4 @@
-package com.pmp
+package com.blibo.pmp
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

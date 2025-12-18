@@ -10,7 +10,7 @@ import {NavigationContainer} from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Feather from 'react-native-vector-icons/Feather';
 import AntDesign from 'react-native-vector-icons/AntDesign';
-import {View, Image, StyleSheet, ImageBackground, Text} from 'react-native';
+import {View, Image, StyleSheet, ImageBackground} from 'react-native';
 import {
   RootStackParamList,
   AuthStackParamList,
@@ -21,13 +21,15 @@ import {
 import LoginScreen from '../Screens/LoginScreen';
 import HelpScreen from '../Screens/HelpScreen';
 import SignupScreen from '../Screens/SignupScreen';
+import ForgotPasswordScreen from '../Screens/ForgotPasswordScreen';
+import ResetPasswordScreen from '../Screens/ResetPasswordScreen';
 import HomeScreen from '../Screens/HomeScreen';
 import ProfileScreen from '../Screens/ProfileScreen';
 import SettingsScreen from '../Screens/SettingsScreen';
 import {useAuth} from '../Context/AuthContext';
 import AddPaymentMethod from '../Screens/AddPaymentMethod';
 import MyMoneyMain from '../Screens/MyMoneyMain';
-import {primaryBtnColor, primaryHeaderColor} from '../helpers/colors';
+import {primaryBtnColor, primaryHeaderColor, secondaryColor} from '../helpers/colors';
 import OtpScreen from '../Screens/OtpScreen';
 import Toast from 'react-native-toast-message';
 import AddMeterScreen from '../Screens/AddMeterScreen';
@@ -41,6 +43,15 @@ import PersonalInfoScreen from '../Screens/PersonalInfoScreen';
 import PasswordSecurityScreen from '../Screens/PasswordSecurityScreen';
 import NotificationPreferencesScreen from '../Screens/NotificationPreferencesScreen';
 import FAQScreen from '../Screens/FAQScreen';
+import { Text } from '@rneui/themed';
+import NewUserQueryScreen from '../Screens/NewUserQueryScreen';
+import TransactionReceipt from "../Screens/TransactionReceipt.tsx";
+import TransactionReceiptBase64 from "../Screens/TransactionReceiptBase64.tsx";
+import UserAvatar from '../components/UserAvatar.tsx';
+import React from 'react';
+import PrivacyPolicyScreen from "../Screens/PrivacyPolicyScreen.tsx";
+import PowerAppReceipt from '../Screens/PowerAppReceipt.tsx';
+
 
 // Stacks & Navigators
 const AuthStack = createStackNavigator<AuthStackParamList>();
@@ -64,28 +75,39 @@ function CustomDrawerContent(props: any) {
             paddingHorizontal: 20,
             paddingVertical: 24,
           }}>
-          <Avatar
-            containerStyle={{
-              backgroundColor: '#9700b9',
-              padding: 10,
-              borderRadius: 10,
-            }}
-            // icon={{ name: "user", type: "ionicons" }}
-            size={50}
-            // rounded
+          {/*<Avatar*/}
+          {/*  containerStyle={{*/}
+          {/*    backgroundColor: secondaryColor,*/}
+          {/*    padding: 10,*/}
+          {/*    borderRadius: 100,*/}
+          {/*    marginTop: 10*/}
+          {/*  }}*/}
+          {/*  titleStyle={{fontFamily: 'Holgada-Regular', fontSize: 24}}*/}
+          {/*  // icon={{ name: "user", type: "ionicons" }}*/}
+          {/*  size={60}*/}
+          {/*  // rounded*/}
 
-            title={
-              authData?.user?.first_name && authData?.user?.last_name
-                ? `${authData?.user.first_name[0]}${authData?.user.last_name[0]}`
-                : 'G'
-            }
+          {/*  title={*/}
+          {/*    authData?.user?.first_name && authData?.user?.last_name*/}
+          {/*      ? `${authData?.user.first_name[0]}${authData?.user.last_name[0]}`*/}
+          {/*      : 'G'*/}
+          {/*  }*/}
+          {/*/>*/}
+
+          <UserAvatar
+            firstName={authData?.user.first_name ?? 'Guest'}
+            lastName={authData?.user.last_name ?? ''}
+            size={60}
+            style={{
+              marginTop: 10
+            }}
           />
           <View>
-            <Text style={{fontSize: 18, fontWeight: '500', color: 'white'}}>
+            <Text style={{fontSize: 16, fontWeight: 'bold', color: 'white', fontFamily: 'Holgada-Regular'}}>
               {authData?.user?.first_name ?? 'Guest'}{' '}
               {authData?.user?.last_name ?? ''}
             </Text>
-            <Text style={{fontSize: 16, color: 'white'}}>
+            <Text style={{ color: 'white', fontFamily: 'Holgada-Regular'}}>
               {authData?.user?.email ?? 'johndoe@gmail.com'}
             </Text>
           </View>
@@ -93,7 +115,7 @@ function CustomDrawerContent(props: any) {
         {/* Optional: Add profile image or other header content */}
       </ImageBackground>
 
-      <DrawerContentScrollView {...props}>
+      <DrawerContentScrollView {...props} style={{fontFamily: 'Holgada-Regular', color: 'gray'}}>
         <DrawerItemList {...props} />
 
         {/* Add Logout Button */}
@@ -120,9 +142,11 @@ function MainTabNavigator() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          height: 60,
-          paddingBottom: 5,
+          height: 70,
+          paddingBottom: 20,
+          // paddingTop: 5,
         },
+        tabBarLabelStyle: { fontFamily: 'Holgada-Regular' },
         tabBarActiveTintColor: '#30a280',
         tabBarInactiveTintColor: 'gray',
       }}>
@@ -222,9 +246,10 @@ function AppDrawerNavigator() {
         component={MainTabNavigator}
         options={{
           title: 'Home',
+          drawerLabelStyle: {fontFamily: 'Holgada-Regular'},
           drawerIcon: ({focused, color, size}) => (
-            <Ionicons
-              name={focused ? 'home' : 'home-outline'}
+            <Feather
+              name={focused ? 'home' : 'home'}
               size={size}
               color={color}
             />
@@ -235,10 +260,11 @@ function AppDrawerNavigator() {
         name="Help"
         component={HelpScreen}
         options={{
+          drawerLabelStyle: {fontFamily: 'Holgada-Regular'},
           title: 'Help Center',
           drawerIcon: ({focused, color, size}) => (
-            <Ionicons
-              name={focused ? 'help-circle' : 'help-circle-outline'}
+            <Feather
+              name={focused ? 'help-circle' : 'help-circle'}
               size={size}
               color={color}
             />
@@ -411,13 +437,84 @@ function AppStackNavigator() {
         options={{
           presentation: 'modal',
           headerShown: true,
-          headerTitle: 'FAQ',
+          headerTitle: 'Help Center',
           headerStyle: {
             backgroundColor: primaryHeaderColor,
           },
           headerTintColor: '#fff',
         }}
       />
+
+      <AppStack.Screen
+        name="NewUserQueryScreen"
+        component={NewUserQueryScreen}
+        options={{
+          presentation: 'modal',
+          headerShown: true,
+          headerTitle: 'New Query',
+          headerStyle: {
+            backgroundColor: primaryHeaderColor,
+          },
+          headerTintColor: '#fff',
+        }}
+      />
+
+        <AppStack.Screen
+            name="TransactionReceipt"
+            component={TransactionReceipt}
+            options={{
+                presentation: 'modal',
+                headerShown: true,
+                headerTitle: 'Transaction Receipt',
+                headerStyle: {
+                    backgroundColor: primaryHeaderColor,
+                },
+                headerTintColor: '#fff',
+            }}
+        />
+
+        <AppStack.Screen
+            name="TransactionReceiptBase64"
+            component={TransactionReceiptBase64}
+            options={{
+                presentation: 'modal',
+                headerShown: true,
+                headerTitle: 'Transaction Receipt',
+                headerStyle: {
+                    backgroundColor: primaryHeaderColor,
+                },
+                headerTintColor: '#fff',
+            }}
+        />
+
+      <AppStack.Screen
+        name="PowerAppReceipt"
+        component={PowerAppReceipt}
+        options={{
+          presentation: 'modal',
+          headerShown: true,
+          headerTitle: 'Transaction Receipt',
+          headerStyle: {
+            backgroundColor: primaryHeaderColor,
+          },
+          headerTintColor: '#fff',
+        }}
+      />
+
+
+        <AppStack.Screen
+            name="PrivacyPolicyScreen"
+            component={PrivacyPolicyScreen}
+            options={{
+                presentation: 'modal',
+                headerShown: true,
+                headerTitle: 'Privacy Policy',
+                headerStyle: {
+                    backgroundColor: primaryHeaderColor,
+                },
+                headerTintColor: '#fff',
+            }}
+        />
 
       {/* Add other modal screens here as needed */}
     </AppStack.Navigator>
@@ -429,7 +526,9 @@ function AuthStackNavigator() {
     <AuthStack.Navigator screenOptions={{headerShown: false}}>
       <AuthStack.Screen name="Login" component={LoginScreen} />
       <AuthStack.Screen name="Signup" component={SignupScreen} />
+      <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       <AuthStack.Screen name="OTPVerify" component={OtpScreen} />
+      <AuthStack.Screen name="ResetPassword" component={ResetPasswordScreen} />
     </AuthStack.Navigator>
   );
 }
@@ -457,6 +556,8 @@ export default function RootNavigator() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    fontFamily: 'Holgada-Regular',
+    fontSize: 5
   },
   headerImage: {
     height: 150,
@@ -481,5 +582,8 @@ const styles = StyleSheet.create({
     height: 150,
     borderRadius: 75,
   },
-  drawerLabel: {},
+  drawerLabel: {
+    fontFamily: 'Holgada-Regular',
+    color: 'gray',
+  },
 });

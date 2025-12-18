@@ -1,0 +1,26 @@
+# Build
+build/
+# Logs
+logs/
+# Dependency directories
+node_modules/
+# React Native
+ios/build/
+android/.gradle/
+android/app/build/
+# macOS
+macos/Pods/
+macos/Podfile.lock
+# Windows
+windows/Podfile.lock
+
+# Android build files
+android/app/.cxx/
+android/build/
+
+# iOS build files
+ios/build/
+ios/Pods/
+
+# IDE
+.idea/

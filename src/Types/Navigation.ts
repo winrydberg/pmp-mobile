@@ -55,6 +55,7 @@ export type AuthStackParamList = {
   Signup: undefined;
   ForgotPassword: undefined;
   OTPVerify: {email: string};
+  ResetPassword: {email: string; resetToken: string};
 };
 
 // App Stack (now parent of Drawer)
@@ -62,7 +63,7 @@ export type AppStackParamList = {
   AppDrawer: NavigatorScreenParams<AppDrawerParamList>; // Changed from MainTabs
   AddWallet: {callback?: () => void};
   AddMeter: undefined;
-  NewPurchase: undefined;
+  NewPurchase: {meterNumber: string} | undefined;
   MakePayment: {meterNumber: string; customerName: string};
   ProcessingPayment: {
     meterNumber: string;
@@ -81,7 +82,18 @@ export type AppStackParamList = {
    PasswordSecurity: undefined;
    NotificationPreferences: undefined;
    FAQ: undefined;
+   PrivacyPolicyScreen: undefined;
    HelpCenter: undefined;
+   NewUserQueryScreen: undefined;
+  TransactionReceipt: {
+    transaction: TransactionItem;
+  };
+  TransactionReceiptBase64: {
+    transaction: TransactionItem;
+  };
+  PowerAppReceipt: {
+    transaction: TransactionItem;
+  };
 };
 
 // App Stack (now parent of Drawer)

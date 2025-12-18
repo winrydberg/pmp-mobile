@@ -1,7 +1,8 @@
+// src/Screens/ProcessingPaymentScreen.tsx
 import React, {useEffect, useState} from 'react';
-import {View, StyleSheet, Text, Alert, Dimensions, ActivityIndicator} from 'react-native';
+import {View, StyleSheet, Text, Alert, ScrollView, TouchableOpacity, Animated} from 'react-native';
 import LottieView from 'lottie-react-native';
-import {Button, BottomSheet, ListItem} from '@rneui/themed';
+import {BottomSheet, ListItem} from '@rneui/themed';
 import Feather from 'react-native-vector-icons/Feather';
 import {useNavigation} from '@react-navigation/native';
 import {StackNavigationProp} from '@react-navigation/stack';
@@ -9,116 +10,210 @@ import {AppStackParamList} from '../types/navigation';
 import {primaryBtnColor, successColor, errorColor} from '../helpers/colors';
 import {PrimaryBtn} from '../components/PrimaryBtn';
 import {LoadingModal} from '../components/LoadingModal';
-import {CancelTransaction, ConfirmPayment, CheckMeterChargingStatus} from '../services/TransactionService';
+import {CancelTransaction, ConfirmPayment} from '../services/TransactionService';
 import Toast from 'react-native-toast-message';
 import {SecondaryBtn} from '../components/SecondaryBtn';
 import {CancelBtn} from '../components/CancelBtn';
-import {Divider} from '@rneui/base';
+import LinearGradient from 'react-native-linear-gradient';
 
 interface ProcessingPaymentScreenProps {
   route: {
     params: {
       amount: string;
       meterNumber: string;
-      transactionData: object;
-      message?: string;
+      transactionData: any;
     };
   };
-  navigation: any;
 }
 
-const ProcessingPaymentScreen: React.FC<ProcessingPaymentScreenProps> = ({
-  route,
-  navigation,
-}) => {
-  const {amount, meterNumber, transactionData, message} = route.params;
+const ProcessingPaymentScreen: React.FC<ProcessingPaymentScreenProps> = ({ route }) => {
+  const {amount, meterNumber, transactionData} = route.params as { amount: string; meterNumber: string; transactionData: any };
+  const txnId = transactionData && (transactionData.EqUuid || transactionData.id) ? (transactionData.EqUuid || transactionData.id) : null;
+
+  console.log('ProcessingPaymentScreen - transactionData:', transactionData);
+  console.log('ProcessingPaymentScreen - txnId:', txnId);
+
   const appNavigation = useNavigation<StackNavigationProp<AppStackParamList>>();
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingModalVisible, setLoadingModalVisible] = useState(false);
   const [isBottomSheetVisible, setIsBottomSheetVisible] = useState(false);
-  const [statusMessage, setStatusMessage] = useState(
-    'Payment is being processed... Please wait',
-  );
-  const [paymentStatus, setPaymentStatus] = useState<'pending' | 'success' | 'failed' | 'charging'>('pending');
-  const [meterChargingStatus, setMeterChargingStatus] = useState<string>('');
-  const [checkInterval, setCheckInterval] = useState<NodeJS.Timeout | null>(null);
+  const [statusMessage, setStatusMessage] = useState('Payment is being processed... Please wait');
+  const [paymentStatus, setPaymentStatus] = useState<'pending' | 'success' | 'failed'>('pending');
+  const [completedTransactionData, setCompletedTransactionData] = useState<any>(null);
+  const [maxAttemptsReached, setMaxAttemptsReached] = useState(false);
+  const [lastPaymentStatus, setLastPaymentStatus] = useState<string | null>(null);
+  const MAX_ATTEMPTS = 10;
+  const CHECK_INTERVAL = 5000;
 
-  // Background check for payment confirmation
-  const checkPaymentStatus = async () => {
-    try {
-      const payload = {
-        TxnID: transactionData.EqUuid,
-        PhoneNumber: '',
-      };
+  const pollingTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = React.useRef(true);
+  const attemptsRef = React.useRef<number>(0);
 
-      const response = await ConfirmPayment(payload);
+  // Animation values
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const scaleAnim = React.useRef(new Animated.Value(0.9)).current;
+  const pulseAnim = React.useRef(new Animated.Value(1)).current;
 
-      if (response?.status === 'success') {
-        if (response.data?.PaymentStatus === 'SUCCESSFUL' || 
-            response.data?.PaymentStatus === 'success') {
-          setPaymentStatus('success');
-          clearInterval(checkInterval as NodeJS.Timeout);
-          startMeterCharging();
-        } else if (response.data?.PaymentStatus === 'ACCEPTED') {
-          setStatusMessage(response.message || 'Payment is pending approval');
-          setIsBottomSheetVisible(true);
-        } else if (response.data?.PaymentStatus === 'EXPIRED') {
-          setPaymentStatus('failed');
-          clearInterval(checkInterval as NodeJS.Timeout);
+  // Start animations
+  React.useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
 
-          appNavigation.navigate('NewPurchase')
-        }
-      }
-    } catch (error) {
-      console.error('Error checking payment status:', error);
+    // Pulse animation for pending state
+    if (paymentStatus === 'pending') {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.05,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
     }
+  }, [paymentStatus]);
+
+  const updateStatusMessage = (incoming?: string) => {
+    if (!incoming) { return; }
+    setStatusMessage(prev => {
+      if (!prev || prev.trim() === '' || prev === 'Payment is being processed... Please wait') { return incoming; }
+      if (prev.includes(incoming)) { return prev; }
+      return `${prev}\n${incoming}`;
+    });
   };
 
-  // Check meter charging status
-  const startMeterCharging = async () => {
-    setPaymentStatus('charging');
-    setStatusMessage('Meter is being charged...');
-    
+  const pollTransactionStatus = async () => {
+    if (!isMountedRef.current) { return; }
+
+    if (attemptsRef.current >= MAX_ATTEMPTS) {
+      setMaxAttemptsReached(true);
+      updateStatusMessage('Maximum retry attempts reached. Please check your status manually or contact support.');
+      setIsBottomSheetVisible(true);
+      return;
+    }
+
     try {
-      const response = await CheckMeterChargingStatus({
-        TxnID: transactionData.EqUuid
+      attemptsRef.current += 1;
+
+      const response = await ConfirmPayment({
+        TxnID: txnId,
+        PhoneNumber: '',
       });
 
-      if (response?.status === 'success') {
+      if (!isMountedRef.current) { return; }
 
-        setMeterChargingStatus(response.message || 'Charging in Progress');
-        
-        if (response.data?.TxnStatus === 'COMPLETED') {
-          Alert.alert(
-            'Mater Charge Complete',
-            'Your meter has been successfully recharged',
-            [{
-              text: 'OK',
-              onPress: () => appNavigation.popToTop()
-            }]
-          );
+      if (response?.message) { updateStatusMessage(response.message); }
+
+      if (response?.status === 'success' && response.data) {
+        const {PaymentStatus, TxnStatus} = response.data;
+        setLastPaymentStatus(PaymentStatus);
+
+        if (TxnStatus === 'FAILED') {
+          setPaymentStatus('failed');
+          setStatusMessage(response.message || response.data?.PaymentMessage || 'Payment confirmation failed');
+          Toast.show({ type: 'error', text1: 'Payment Failed', text2: response.message || response.data?.PaymentMessage || 'Payment confirmation failed', position: 'top' });
+          return;
+        }
+
+        if (PaymentStatus === 'EXPIRED') {
+          setPaymentStatus('failed');
+          setStatusMessage(response.message || 'Payment has expired');
+          Toast.show({ type: 'error', text1: 'Payment Expired', text2: response.message || 'Your payment has expired', position: 'top' });
+          return;
+        }
+
+        if (PaymentStatus === 'SUCCESSFUL' || PaymentStatus === 'success') {
+          updateStatusMessage(response.data?.PaymentMessage || 'Payment successful');
+
+          if (TxnStatus === 'COMPLETED' || TxnStatus === 'SUCCESSFUL') {
+            setPaymentStatus('success');
+            setStatusMessage('Meter charged successfully!');
+            setCompletedTransactionData(response.data);
+            Toast.show({ type: 'success', text1: 'Success!', text2: 'Meter charged successfully', position: 'top' });
+
+            if (pollingTimeoutRef.current) {
+              clearTimeout(pollingTimeoutRef.current);
+              pollingTimeoutRef.current = null;
+            }
+            return;
+          }
+
+          if (attemptsRef.current < MAX_ATTEMPTS && isMountedRef.current) {
+            pollingTimeoutRef.current = setTimeout(() => pollTransactionStatus(), CHECK_INTERVAL);
+          } else {
+            setMaxAttemptsReached(true);
+            updateStatusMessage('Maximum retry attempts reached. Please check your meter status manually.');
+            setIsBottomSheetVisible(true);
+          }
+          return;
+        }
+
+        if (attemptsRef.current < MAX_ATTEMPTS && isMountedRef.current) {
+          pollingTimeoutRef.current = setTimeout(() => pollTransactionStatus(), CHECK_INTERVAL);
+        } else {
+          setMaxAttemptsReached(true);
+          updateStatusMessage('Maximum retry attempts reached. Please check your status manually.');
+          setIsBottomSheetVisible(true);
+        }
+      } else {
+        if (attemptsRef.current < MAX_ATTEMPTS && isMountedRef.current) {
+          pollingTimeoutRef.current = setTimeout(() => pollTransactionStatus(), CHECK_INTERVAL);
+        } else {
+          setMaxAttemptsReached(true);
+          updateStatusMessage('Maximum retry attempts reached. Please check your status manually.');
+          setIsBottomSheetVisible(true);
         }
       }
-    } catch (error) {
-      console.error('Error checking meter status:', error);
+    } catch (error: any) {
+      if (!isMountedRef.current) { return; }
+
+      const errorMessage = error?.response?.data?.message || error?.message || 'An error occurred while checking status';
+      updateStatusMessage(errorMessage);
+
+      if (attemptsRef.current < MAX_ATTEMPTS && isMountedRef.current) {
+        pollingTimeoutRef.current = setTimeout(() => pollTransactionStatus(), CHECK_INTERVAL);
+      } else {
+        setMaxAttemptsReached(true);
+        updateStatusMessage('Maximum retry attempts reached. Please check your status manually.');
+        setIsBottomSheetVisible(true);
+      }
     }
   };
 
   useEffect(() => {
-    // Start background check every 10 seconds
-    const interval = setInterval(checkPaymentStatus, 10000);
-    setCheckInterval(interval);
+    isMountedRef.current = true;
+    attemptsRef.current = 0;
+    setMaxAttemptsReached(false);
+    pollTransactionStatus();
 
-    // Show bottom sheet after 15 seconds if payment is still pending
     const timer = setTimeout(() => {
-      if (paymentStatus === 'pending') {
+      if (paymentStatus === 'pending' && attemptsRef.current < MAX_ATTEMPTS && !maxAttemptsReached) {
         setIsBottomSheetVisible(true);
-        setStatusMessage(message || 'Please confirm your payment status');
       }
     }, 15000);
 
     return () => {
-      clearInterval(interval);
+      isMountedRef.current = false;
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current);
+        pollingTimeoutRef.current = null;
+      }
       clearTimeout(timer);
     };
   }, []);
@@ -129,47 +224,97 @@ const ProcessingPaymentScreen: React.FC<ProcessingPaymentScreenProps> = ({
       setLoadingModalVisible(true);
       setIsBottomSheetVisible(false);
 
-      const payload = {
-        TxnID: transactionData.EqUuid,
-        PhoneNumber: '',
-      };
-
+      const payload = { TxnID: txnId, PhoneNumber: '' };
       const response = await ConfirmPayment(payload);
 
-      if (response?.status === 'success') {
-        if (response.data?.PaymentStatus === 'SUCCESSFUL' || 
-            response.data?.PaymentStatus === 'success') {
-          setPaymentStatus('success');
-          startMeterCharging();
-        } else if (response.data?.PaymentStatus === 'ACCEPTED') {
-          setIsBottomSheetVisible(true)
+      if (response?.message) { updateStatusMessage(response.message); }
+
+      if (response?.status === 'success' && response.data) {
+        const {PaymentStatus, TxnStatus} = response.data;
+        setLastPaymentStatus(PaymentStatus);
+
+        if (TxnStatus === 'FAILED') {
+          setPaymentStatus('failed');
+          Alert.alert('Payment Failed', response.message || response.data?.PaymentMessage || 'Payment confirmation failed. Please try again.', [{ text: 'Retry', onPress: () => appNavigation.popToTop() }]);
+          return;
+        }
+
+        if (PaymentStatus === 'SUCCESSFUL' || PaymentStatus === 'success') {
+          setStatusMessage('Payment confirmed! Charging meter...');
+          if (TxnStatus === 'COMPLETED' || TxnStatus === 'SUCCESSFUL') {
+            setPaymentStatus('success');
+            setStatusMessage('Meter charged successfully!');
+            setCompletedTransactionData(response.data);
+          } else {
+            attemptsRef.current = 0;
+            if (pollingTimeoutRef.current) {
+              clearTimeout(pollingTimeoutRef.current);
+              pollingTimeoutRef.current = null;
+            }
+            pollTransactionStatus();
+          }
+        } else if (PaymentStatus === 'ACCEPTED') {
+          setIsBottomSheetVisible(true);
           setStatusMessage(response.message || 'Payment is pending approval');
-        } else if (response.data?.PaymentStatus === 'EXPIRED') {
-          Alert.alert(
-            'Payment Expired',
-            response.message || 'Your payment has expired. Please try again.',
-            [{
-              text: 'Retry',
-              onPress: () => appNavigation.popToTop(),
-            }]
-          );
+        } else if (PaymentStatus === 'EXPIRED') {
+          Alert.alert('Payment Expired', response.message || 'Your payment has expired. Please try again.', [{ text: 'Retry', onPress: () => appNavigation.popToTop() }]);
         } else {
-          Alert.alert(
-            'Payment Failed',
-            response.message || 'Your payment could not be processed',
-            [{
-              text: 'Retry',
-              onPress: () => appNavigation.popToTop(),
-            }]
-          );
+          Alert.alert('Payment Failed', response.message || 'Your payment could not be processed', [{ text: 'Retry', onPress: () => appNavigation.popToTop() }]);
         }
       }
-    } catch (error) {
-      Alert.alert(
-        'Error',
-        error?.response?.message || 'An error occurred while confirming the payment',
-      );
-      console.error('Payment confirmation error:', error);
+    } catch (error: any) {
+      Alert.alert('Error', error?.response?.message || 'An error occurred while confirming the payment');
+    } finally {
+      setIsProcessing(false);
+      setLoadingModalVisible(false);
+    }
+  };
+
+  const handleManualStatusCheck = async () => {
+    try {
+      setIsProcessing(true);
+      setLoadingModalVisible(true);
+      setIsBottomSheetVisible(false);
+      setMaxAttemptsReached(false);
+
+      const payload = { TxnID: txnId, PhoneNumber: '' };
+      const response = await ConfirmPayment(payload);
+
+      if (response?.message) { updateStatusMessage(response.message); }
+
+      if (response?.status === 'success' && response.data) {
+        const {PaymentStatus, TxnStatus} = response.data;
+        setLastPaymentStatus(PaymentStatus);
+
+        if (TxnStatus === 'FAILED') {
+          setPaymentStatus('failed');
+          Alert.alert('Payment Failed', response.message || response.data?.PaymentMessage || 'Transaction failed');
+          return;
+        }
+
+        if ((PaymentStatus === 'SUCCESSFUL' || PaymentStatus === 'success') && (TxnStatus === 'COMPLETED' || TxnStatus === 'SUCCESSFUL')) {
+          setPaymentStatus('success');
+          setStatusMessage('Meter charged successfully!');
+          setCompletedTransactionData(response.data);
+        } else if (PaymentStatus === 'SUCCESSFUL' || PaymentStatus === 'success') {
+          setStatusMessage('Payment confirmed! Charging meter...');
+          attemptsRef.current = 0;
+          if (pollingTimeoutRef.current) {
+            clearTimeout(pollingTimeoutRef.current);
+            pollingTimeoutRef.current = null;
+          }
+          pollTransactionStatus();
+        } else {
+          setStatusMessage(response.message || 'Transaction is still being processed');
+          setIsBottomSheetVisible(true);
+        }
+      } else {
+        Alert.alert('Status Check', response?.message || 'Could not retrieve transaction status');
+        setIsBottomSheetVisible(true);
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error?.response?.message || 'An error occurred while checking status');
+      setIsBottomSheetVisible(true);
     } finally {
       setIsProcessing(false);
       setLoadingModalVisible(false);
@@ -180,9 +325,7 @@ const ProcessingPaymentScreen: React.FC<ProcessingPaymentScreenProps> = ({
     try {
       setIsProcessing(true);
       setIsBottomSheetVisible(false);
-      const res = await CancelTransaction({
-        TxnID: transactionData.EqUuid,
-      });
+      const res = await CancelTransaction({ TxnID: txnId });
 
       if (res.status === 'success') {
         Alert.alert('Transaction Cancelled', res.message || 'Transaction cancelled successfully');
@@ -192,129 +335,349 @@ const ProcessingPaymentScreen: React.FC<ProcessingPaymentScreenProps> = ({
       }
     } catch (error) {
       Alert.alert('Error', 'An error occurred while cancelling the transaction');
-      console.error(error);
     } finally {
       setIsProcessing(false);
     }
   };
 
+  const handleViewReceipt = () => {
+    const payload = completedTransactionData || transactionData;
+    if (!payload) {
+      Toast.show({ type: 'error', text1: 'No receipt', text2: 'No transaction data available to build receipt.' });
+      return;
+    }
+    appNavigation.navigate('PowerAppReceipt', { transaction: payload });
+  };
+
+  // Pop to root first, then navigate to NewPurchase
+  const handleNewPurchase = () => {
+    appNavigation.popToTop();
+    // small delay to ensure popToTop completes before navigating
+    setTimeout(() => {
+      appNavigation.navigate('NewPurchase');
+    }, 100);
+  };
+
+  // Pop to root without navigating
+  const handleGoBack = () => {
+    appNavigation.popToTop();
+  };
+
   const renderStatusContent = () => {
     switch (paymentStatus) {
-      case 'charging':
-        return (
-          <>
-            <View style={styles.chargingContainer}>
-              <ActivityIndicator size="large" color={primaryBtnColor} />
-              {/* <LottieView
-                source={require('../assets/animations/meter-charging.json')}
-                autoPlay
-                loop
-                style={styles.chargingAnimation}
-              /> */}
-              <Text style={{color:'green', fontWeight:'bold'}}>PAYMENT CONFIRMED SUCCESSFULLY</Text>
-              <Text style={styles.chargingText}>{meterChargingStatus || 'Charging meter...'}</Text>
-            </View>
-            <Text style={styles.statusText}>{statusMessage}</Text>
-          </>
-        );
       case 'success':
         return (
-          <>
-            <View style={[styles.statusIconContainer, {backgroundColor: successColor}]}>
-              <Feather name="check" size={40} color="white" />
+          <Animated.View
+            style={[
+              styles.statusContainer,
+              { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+            ]}
+          >
+            <View style={styles.successCard}>
+              <View style={styles.successIconContainer}>
+                <LinearGradient
+                  colors={['#34B87C', '#2DA771']}
+                  style={styles.successIconGradient}
+                >
+                  <Feather name="check-circle" size={64} color="white" />
+                </LinearGradient>
+              </View>
+
+              <Text style={styles.successTitle}>Transaction Successful!</Text>
+              <Text style={styles.successSubtitle}>Your meter has been charged successfully</Text>
+
+              <View style={styles.successButtonsContainer}>
+                <TouchableOpacity
+                  style={styles.receiptButton}
+                  onPress={handleViewReceipt}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={['#4A90C4', '#34B87C']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.receiptButtonGradient}
+                  >
+                    <Feather name="file-text" size={20} color="white" />
+                    <Text style={styles.receiptButtonText}>View Receipt</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                <View style={styles.rowButtons}>
+                  <TouchableOpacity
+                    style={styles.newPurchaseButton}
+                    onPress={handleNewPurchase}
+                    activeOpacity={0.7}
+                  >
+                    <Feather name="plus-circle" size={20} color="#4A90C4" />
+                    <Text style={styles.newPurchaseButtonText}>New Purchase</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={handleGoBack}
+                    activeOpacity={0.7}
+                  >
+                    <Feather name="arrow-left" size={20} color="#4A90C4" />
+                    <Text style={styles.backButtonText}>Back</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
-            <Text style={styles.statusText}>Payment successful! Meter charging in progress...</Text>
-          </>
+          </Animated.View>
         );
+
       case 'failed':
         return (
-          <>
-            <View style={[styles.statusIconContainer, {backgroundColor: errorColor}]}>
-              <Feather name="x" size={40} color="white" />
+          <Animated.View
+            style={[
+              styles.statusContainer,
+              { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }
+            ]}
+          >
+            <View style={styles.failedCard}>
+              <View style={styles.failedIconContainer}>
+                <LinearGradient
+                  colors={['#EF4444', '#DC2626']}
+                  style={styles.failedIconGradient}
+                >
+                  <Feather name="x-circle" size={64} color="white" />
+                </LinearGradient>
+              </View>
+
+              <Text style={styles.failedTitle}>Payment Failed</Text>
+              <Text style={styles.failedSubtitle}>{statusMessage || 'Payment could not be processed'}</Text>
+
+              <TouchableOpacity
+                style={styles.retryButton}
+                onPress={() => appNavigation.popToTop()}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#4A90C4', '#34B87C']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.retryButtonGradient}
+                >
+                  <Feather name="refresh-cw" size={20} color="white" />
+                  <Text style={styles.retryButtonText}>Try Again</Text>
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
-            <Text style={[styles.statusText, {color: errorColor}]}>
-              {statusMessage || 'Payment failed. Please try again.'}
-            </Text>
-          </>
+          </Animated.View>
         );
+
       default:
         return (
-          <>
-            <View style={styles.animationContainer}>
-              <LottieView
-                source={require('../assets/animations/payment-processing.json')}
-                autoPlay
-                loop
-                style={styles.animation}
-              />
+          <Animated.View
+            style={[
+              styles.statusContainer,
+              { opacity: fadeAnim, transform: [{ scale: pulseAnim }] }
+            ]}
+          >
+            <View style={styles.processingCard}>
+              <View style={styles.animationContainer}>
+                <LottieView
+                  source={require('../assets/animations/payment-processing.json')}
+                  autoPlay
+                  loop
+                  style={styles.animation}
+                />
+              </View>
+
+              <View style={styles.processingTextContainer}>
+                <Text style={styles.processingTitle}>Processing Payment</Text>
+                <Text style={styles.processingSubtitle}>{statusMessage}</Text>
+              </View>
+
+              <View style={styles.progressIndicator}>
+                <View style={styles.progressDot} />
+                <View style={[styles.progressDot, styles.progressDotDelay1]} />
+                <View style={[styles.progressDot, styles.progressDotDelay2]} />
+              </View>
             </View>
-            <Text style={styles.statusText}>{statusMessage}</Text>
-          </>
+          </Animated.View>
         );
     }
   };
 
   return (
     <View style={styles.container}>
-      <LoadingModal 
-        visible={loadingModalVisible} 
+      <LoadingModal
+        visible={loadingModalVisible}
         message={
-          paymentStatus === 'charging' ? 
-          'Charging meter...' : 
-          'Confirming Payment... Please wait...'
-        } 
+          paymentStatus === 'pending' ?
+            'Confirming Payment... Please wait...' :
+            'Charging meter...'
+        }
       />
 
-      <View style={styles.content}>
-        <View style={styles.detailsContainer}>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Amount:</Text>
-            <Text style={styles.detailValue}>GHS {amount}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Meter Number:</Text>
-            <Text style={styles.detailValue}>{meterNumber}</Text>
-          </View>
-        </View>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View
+          style={[
+            styles.detailsCard,
+            { opacity: fadeAnim, transform: [{ translateY: scaleAnim.interpolate({ inputRange: [0.9, 1], outputRange: [20, 0] }) }] }
+          ]}
+        >
+          <LinearGradient
+            colors={['#4A90C4', '#34B87C']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.detailsGradient}
+          >
+            <View style={styles.detailRow}>
+              <View style={styles.detailLabelContainer}>
+                <Feather name="dollar-sign" size={16} color="rgba(255,255,255,0.8)" />
+                <Text style={styles.detailLabel}>Amount</Text>
+              </View>
+              <Text style={styles.detailValue}>GHS {amount}</Text>
+            </View>
+
+            <View style={styles.detailDivider} />
+
+            <View style={styles.detailRow}>
+              <View style={styles.detailLabelContainer}>
+                <Feather name="zap" size={16} color="rgba(255,255,255,0.8)" />
+                <Text style={styles.detailLabel}>Meter Number</Text>
+              </View>
+              <Text style={styles.detailValue}>{meterNumber}</Text>
+            </View>
+          </LinearGradient>
+        </Animated.View>
 
         {renderStatusContent()}
-      </View>
+      </ScrollView>
 
-      {paymentStatus === 'pending' && (
+      {((paymentStatus === 'pending') || maxAttemptsReached) && (
         <BottomSheet
           isVisible={isBottomSheetVisible}
           containerStyle={styles.bottomSheetContainer}
         >
-          <ListItem>
-            <ListItem.Content>
-              <ListItem.Title style={{fontWeight: 'bold', fontSize: 18}}>
-                Payment Status
-              </ListItem.Title>
-              <ListItem.Subtitle style={{marginTop: 10}}>
-                {statusMessage}
-              </ListItem.Subtitle>
-            </ListItem.Content>
-          </ListItem>
+          <View style={styles.bottomSheetContent}>
+            <View style={styles.sheetHandle} />
 
-          <ListItem>
-            <ListItem.Content>
-              <View style={styles.buttonPaymentGroup}>
-                <CancelBtn
-                  title="Cancel"
-                  onPress={handleCancel}
-                  containerStyle={{width: '45%'}}
-                  disabled={isProcessing}
-                />
-                <PrimaryBtn
-                  title="I have Paid"
-                  onPress={handlePaymentConfirmation}
-                  containerStyle={{width: '45%'}}
-                  icon={<Feather name="check" size={16} color={'white'} />}
-                  disabled={isProcessing}
-                />
-              </View>
-            </ListItem.Content>
-          </ListItem>
+            <View style={styles.sheetHeader}>
+              <Feather
+                name={maxAttemptsReached ? "alert-circle" : "clock"}
+                size={24}
+                color="#4A90C4"
+              />
+              <Text style={styles.sheetTitle}>
+                {maxAttemptsReached ? 'Status Check Required' : 'Payment Status'}
+              </Text>
+            </View>
+
+            <View style={styles.sheetMessageContainer}>
+              <Text style={styles.sheetMessage}>{statusMessage}</Text>
+            </View>
+
+            <View style={styles.sheetActions}>
+              {maxAttemptsReached ? (
+                lastPaymentStatus === 'SUCCESSFUL' || lastPaymentStatus === 'success' ? (
+                  <TouchableOpacity
+                    style={styles.fullWidthButton}
+                    onPress={handleManualStatusCheck}
+                    disabled={isProcessing}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={['#4A90C4', '#34B87C']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.sheetButtonGradient}
+                    >
+                      <Feather name="refresh-cw" size={18} color="white" />
+                      <Text style={styles.sheetButtonText}>Check Status</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.doubleButtonRow}>
+                    <TouchableOpacity
+                      style={styles.halfWidthButton}
+                      onPress={handleCancel}
+                      disabled={isProcessing}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.cancelButtonContent}>
+                        <Feather name="x" size={18} color="#EF4444" />
+                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.halfWidthButton}
+                      onPress={handleManualStatusCheck}
+                      disabled={isProcessing}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['#4A90C4', '#34B87C']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.sheetButtonGradient}
+                      >
+                        <Feather name="refresh-cw" size={18} color="white" />
+                        <Text style={styles.sheetButtonText}>Check Status</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                )
+              ) : (
+                lastPaymentStatus === 'SUCCESSFUL' || lastPaymentStatus === 'success' ? (
+                  <TouchableOpacity
+                    style={styles.fullWidthButton}
+                    onPress={handleManualStatusCheck}
+                    disabled={isProcessing}
+                    activeOpacity={0.8}
+                  >
+                    <LinearGradient
+                      colors={['#4A90C4', '#34B87C']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.sheetButtonGradient}
+                    >
+                      <Feather name="refresh-cw" size={18} color="white" />
+                      <Text style={styles.sheetButtonText}>Check Status</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.doubleButtonRow}>
+                    <TouchableOpacity
+                      style={styles.halfWidthButton}
+                      onPress={handleCancel}
+                      disabled={isProcessing}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.cancelButtonContent}>
+                        <Feather name="x" size={18} color="#EF4444" />
+                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.halfWidthButton}
+                      onPress={handlePaymentConfirmation}
+                      disabled={isProcessing}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['#4A90C4', '#34B87C']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.sheetButtonGradient}
+                      >
+                        <Feather name="check" size={18} color="white" />
+                        <Text style={styles.sheetButtonText}>I have Paid</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                )
+              )}
+            </View>
+          </View>
         </BottomSheet>
       )}
     </View>
@@ -324,86 +687,344 @@ const ProcessingPaymentScreen: React.FC<ProcessingPaymentScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#F9FAFB',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    padding: 10,
+    paddingTop: 40,
+  },
+  detailsCard: {
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginBottom: 32,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  detailsGradient: {
     padding: 20,
   },
-  content: {
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  detailLabelContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  detailLabel: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
+  },
+  detailValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: 'white',
+  },
+  detailDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginVertical: 16,
+  },
+  statusContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  processingCard: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 32,
+    width: '100%',
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+  },
   animationContainer: {
     width: 200,
     height: 200,
-    marginBottom: 30,
+    marginBottom: 24,
   },
   animation: {
     width: '100%',
     height: '100%',
   },
-  chargingContainer: {
+  processingTextContainer: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 24,
   },
-  chargingAnimation: {
-    width: 150,
-    height: 150,
+  processingTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
   },
-  chargingText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginTop: 10,
-    color: primaryBtnColor,
-  },
-  detailsContainer: {
-    width: '100%',
-    marginBottom: 30,
-    paddingHorizontal: 20,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  detailLabel: {
-    fontSize: 16,
-    color: '#555',
-  },
-  detailValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  statusText: {
+  processingSubtitle: {
     fontSize: 14,
-    color: '#666',
+    color: '#6B7280',
     textAlign: 'center',
-    fontStyle: 'italic',
-    paddingHorizontal: 20,
-    marginBottom: 30,
+    lineHeight: 20,
   },
-  statusIconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+  progressIndicator: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  progressDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#4A90C4',
+  },
+  progressDotDelay1: {
+    opacity: 0.6,
+  },
+  progressDotDelay2: {
+    opacity: 0.3,
+  },
+  successCard: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 32,
+    width: '100%',
+    alignItems: 'center',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+  },
+  successIconContainer: {
+    marginBottom: 24,
+  },
+  successIconGradient: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
   },
-  buttonPaymentGroup: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  successTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  successSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 32,
+  },
+  successButtonsContainer: {
     width: '100%',
-    marginTop: 20,
+    gap: 12,
+  },
+  receiptButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 4,
+  },
+  receiptButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  receiptButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: 'white',
+  },
+  // row containing New Purchase and Back
+  rowButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  newPurchaseButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#4A90C4',
+    gap: 8,
+  },
+  newPurchaseButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4A90C4',
+  },
+  backButton: {
+    width: 120,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 8,
+  },
+  backButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4A90C4',
+  },
+  newPurchaseButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#4A90C4',
+  },
+  failedCard: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 32,
+    width: '100%',
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+  },
+  failedIconContainer: {
+    marginBottom: 24,
+  },
+  failedIconGradient: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  failedTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  failedSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 20,
+  },
+  retryButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    width: '100%',
+    elevation: 4,
+  },
+  retryButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  retryButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: 'white',
   },
   bottomSheetContainer: {
-    // backgroundColor: 'white',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    // borderTopLeftRadius: 20,
-    // borderTopRightRadius: 20,
-    // padding: 20,
+  },
+  bottomSheetContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 24,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  sheetMessageContainer: {
+    backgroundColor: '#F9FAFB',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+  },
+  sheetMessage: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  sheetActions: {
+    gap: 12,
+  },
+  fullWidthButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 4,
+  },
+  sheetButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  sheetButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: 'white',
+  },
+  doubleButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  halfWidthButton: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  cancelButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    backgroundColor: '#FEE2E2',
+    gap: 8,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#EF4444',
   },
 });
 

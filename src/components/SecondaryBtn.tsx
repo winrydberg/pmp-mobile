@@ -7,7 +7,9 @@ export const SecondaryBtn: React.FC<ButtonProps> = (props) => (
   <Button
     buttonStyle={{
       backgroundColor: secondaryBtnColor,
-      // borderRadius: 8,
+      borderRadius: 50,
+      paddingLeft: 30,
+      paddingRight: 30,
       paddingVertical: 10,
     }}
     titleStyle={{

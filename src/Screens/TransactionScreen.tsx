@@ -1,14 +1,14 @@
 import React, {useState, useEffect} from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   FlatList,
   SafeAreaView,
   ActivityIndicator,
   TouchableOpacity,
+  Animated,
 } from 'react-native';
-import {Tab, TabView} from '@rneui/themed';
+import {Tab, TabView, Text} from '@rneui/themed';
 import {TransactionItem} from '../Types/Transaction';
 import {
   getPendingTransactions,
@@ -22,19 +22,19 @@ import {
   MainTabParamList,
   TransactionStackParamList,
 } from '../types/navigation';
-
-// type TransactionScreenProps = {
-//   // Add any props if needed
-// };
+import { primaryBtnColor, secondaryColor } from '../helpers/colors';
+import { formatDateTime } from '../helpers/helpers';
+import Feather from 'react-native-vector-icons/Feather';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import LinearGradient from 'react-native-linear-gradient';
 
 type TransactionScreenProps = {
-  navigation: StackNavigationProp<any>; // Add this line
+  navigation: StackNavigationProp<any>;
 };
 
 type HomeScreenProps = StackScreenProps<MainTabParamList, 'Transactions'>;
 
 const TransactionScreen: React.FC<HomeScreenProps> = () => {
-  // const appNavigation = useNavigation<StackNavigationProp<TransactionStackParamList>>();
   const appNavigation = useNavigation<StackNavigationProp<AppStackParamList>>();
   const [activeTab, setActiveTab] = useState<number>(0);
   const [pendingTransactions, setPendingTransactions] = useState<
@@ -45,6 +45,17 @@ const TransactionScreen: React.FC<HomeScreenProps> = () => {
   >([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+
+  // Animation values
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      useNativeDriver: true,
+    }).start();
+  }, []);
 
   const fetchTransactions = async () => {
     try {
@@ -85,11 +96,6 @@ const TransactionScreen: React.FC<HomeScreenProps> = () => {
     }
   };
 
-  // const handleRefresh = () => {
-  //   setRefreshing(true);
-  //   fetchTransactions();
-  // };
-
   const handleRefresh = (val?: boolean) => {
     setRefreshing(val !== undefined ? val : true);
     fetchTransactions();
@@ -101,141 +107,211 @@ const TransactionScreen: React.FC<HomeScreenProps> = () => {
     }, []),
   );
 
-  const formatPhoneNumber = (accountNumber: string | null) => {
-    if (!accountNumber) return 'N/A';
-    // Remove decimal part if exists
-    const num = accountNumber.split('.')[0];
-    // Format as phone number if it's 9-10 digits
-    if (num.length === 9 || num.length === 10) {
-      return `0${num.substring(num.length - 9)}`;
-    }
-    return num;
-  };
-
   const getStatusText = (item: TransactionItem) => {
-    // if (activeTab === 1) {
-      // Completed tab
-      if (item.PaymentStatus === 'SUCCESSFUL') {
-        if (item.TxnStatus === 'COMPLETED') {
-          return 'COMPLETED';
-        } else if (item.TxnStatus === 'PENDING') {
-          return 'PENDING METER DELIVERY';
-        } else if (item.TxnStatus === 'FAILED') {
-          return 'FAILED';
-        } else {
-          console.warn('Unknown TxnStatus:', item.TxnStatus);
-          return 'UNKNOWN STATUS';
-        }
+    if (item.PaymentStatus === 'SUCCESSFUL') {
+      if (item.TxnStatus === 'COMPLETED' || item.TxnStatus === 'SUCCESSFUL') {
+        return 'COMPLETED';
+      } else if (item.TxnStatus === 'PENDING') {
+        return 'PENDING';
+      } else if (item.TxnStatus === 'FAILED') {
+        return 'FAILED';
+      } else {
+        return 'UNKNOWN';
       }
-      else if (item.PaymentStatus === 'EXPIRED' || item.PaymentStatus === 'CANCELLED') {
-        return item.PaymentStatus;
-      }else{
-        return item.PaymentStatus || 'UNKNOWN STATUS';
-      }
-    
+    }
+    else if (item.PaymentStatus === 'EXPIRED' || item.PaymentStatus === 'CANCELLED') {
+      return item.PaymentStatus;
+    } else {
+      return item.PaymentStatus || 'UNKNOWN';
+    }
   };
 
   const getStatusColor = (item: TransactionItem) => {
-    // if (activeTab === 1) {
-      // Completed tab
-      if( item.PaymentStatus === 'SUCCESSFUL') {
-        if (item.TxnStatus === 'COMPLETED') {
-          return '#4CAF50'; // Green for completed
-        }
-        else if (item.TxnStatus === 'PENDING') {
-          return '#007AFF'; // Orange for pending 
-        }
-        else if (item.TxnStatus === 'FAILED') {
-          return '#F44336'; // Red for failed
-        }else{
-          console.warn('Unknown TxnStatus:', item.TxnStatus);
-          // Default color if TxnStatus is unknown
-          return '#9E9E9E'; // Grey for unknown
-        }
-      }else if (item.PaymentStatus === 'EXPIRED' || item.PaymentStatus === 'CANCELLED') {
-        return '#F44336'; // Red for expired or cancelled
+    if (item.PaymentStatus === 'SUCCESSFUL') {
+      if (item.TxnStatus === 'COMPLETED' || item.TxnStatus === 'SUCCESSFUL') {
+        return '#34B87C'; // Brand green
       }
-
-    // }else{
-    //   // Pending tab
-    //   return '#FF9800'; // Orange for pending payment
-    // }
+      else if (item.TxnStatus === 'PENDING') {
+        return '#FB923C'; // Orange
+      }
+      else if (item.TxnStatus === 'FAILED') {
+        return '#EF4444'; // Red
+      } else {
+        return '#9CA3AF'; // Grey
+      }
+    } else if (item.PaymentStatus === 'EXPIRED' || item.PaymentStatus === 'CANCELLED') {
+      return '#EF4444'; // Red
+    }
+    return '#9CA3AF'; // Grey default
   };
 
-  const renderTransactionItem = ({item}: {item: TransactionItem}) => (
+  const getStatusIcon = (item: TransactionItem) => {
+    if (item.PaymentStatus === 'SUCCESSFUL') {
+      if (item.TxnStatus === 'COMPLETED' || item.TxnStatus === 'SUCCESSFUL') {
+        return 'check-circle';
+      } else if (item.TxnStatus === 'PENDING') {
+        return 'clock';
+      } else if (item.TxnStatus === 'FAILED') {
+        return 'x-circle';
+      }
+    } else if (item.PaymentStatus === 'EXPIRED' || item.PaymentStatus === 'CANCELLED') {
+      return 'x-circle';
+    }
+    return 'alert-circle';
+  };
+
+  const renderTransactionItem = ({item, index}: {item: TransactionItem, index: number}) => (
     <TouchableOpacity
       onPress={() =>
         appNavigation.navigate('TransactionDetails', {
           transaction: item,
-          refetchFunc: handleRefresh, // Pass the handleRefresh function directly
+          refetchFunc: handleRefresh,
         })
-      }>
-      <View style={styles.transactionItem}>
-        <View style={styles.transactionHeader}>
-          <View>
-            {/* <Text style={styles.transactionType}>
-              {item.TxType === 'charge'
-                ? 'Meter Charge'
-                : 'Electricity Payment'}
-            </Text> */}
-             <Text style={styles.transactionType}>
-              {'PREPAID ONLINE'}
-            </Text>
-            <Text style={styles.meterInfo}>
-              METER NO: {item.MeterNumber || 'N/A'} ({item.MeterType || 'N/A'})
-            </Text>
+      }
+      activeOpacity={0.7}
+    >
+      <Animated.View
+        style={[
+          styles.transactionCard,
+          {
+            opacity: fadeAnim,
+            transform: [
+              {
+                translateY: fadeAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [20, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        {/* Left accent border */}
+        <View
+          style={[
+            styles.accentBorder,
+            { backgroundColor: getStatusColor(item) }
+          ]}
+        />
+
+        <View style={styles.cardContent}>
+          {/* Header Section */}
+          <View style={styles.cardHeader}>
+            <View style={styles.iconContainer}>
+              <MaterialCommunityIcons
+                name="lightning-bolt"
+                size={24}
+                color="#4A90C4"
+              />
+            </View>
+            <View style={styles.headerInfo}>
+              {
+                item.MeterType === 'POSTPAID' ? (
+                  <Text style={styles.transactionType}>Postpaid Bill</Text>
+                ) : (
+                  <Text style={styles.transactionType}>Prepaid Purchase</Text>
+                )
+              }
+              <View style={styles.meterRow}>
+                <Feather name="zap" size={12} color="#6B7280" />
+                <Text style={styles.meterInfo}>
+                  {item.MeterNumber || 'N/A'} • {item.MeterType || 'N/A'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.amountContainer}>
+              <Text style={styles.currencyLabel}>GHS</Text>
+              <Text style={styles.transactionAmount}>
+                {Number(item.Amount).toFixed(2)}
+              </Text>
+            </View>
           </View>
-          <Text style={[styles.transactionAmount, {color: '#007AFF'}]}>
-            GHS {item.Amount}
-          </Text>
+
+          {/* Status and Date Section */}
+          <View style={styles.cardFooter}>
+            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item) + '20' }]}>
+              <Feather
+                name={getStatusIcon(item)}
+                size={12}
+                color={getStatusColor(item)}
+              />
+              <Text style={[styles.statusText, { color: getStatusColor(item) }]}>
+                {getStatusText(item)}
+              </Text>
+            </View>
+            <View style={styles.dateContainer}>
+              <Feather name="calendar" size={12} color="#9CA3AF" />
+              <Text style={styles.dateText}>
+                {formatDateTime(item.created_at)}
+              </Text>
+            </View>
+          </View>
         </View>
 
-        <View style={styles.transactionDetails}>
-          <Text style={styles.detailText}>
-            {/* <Text style={styles.detailLabel}>Status: </Text> */}
-            <Text style={[styles.detailValue, {color: getStatusColor(item)}]}>
-              {getStatusText(item)}
-            </Text>
-          </Text>
-
-
-          <Text style={styles.detailText}>
-            {/* <Text style={styles.detailLabel}>Date: </Text> */}
-            <Text style={[styles.detailValue, {fontSize: 10, color:'gray'}]}>
-              {new Date(item.created_at).toLocaleString()}
-            </Text>
-          </Text>
+        {/* Arrow indicator */}
+        <View style={styles.arrowContainer}>
+          <Feather name="chevron-right" size={20} color="#D1D5DB" />
         </View>
-      </View>
+      </Animated.View>
     </TouchableOpacity>
+  );
+
+  const renderEmptyState = (message: string) => (
+    <View style={styles.emptyContainer}>
+      <View style={styles.emptyIconContainer}>
+        <Feather name="inbox" size={64} color="#D1D5DB" />
+      </View>
+      <Text style={styles.emptyTitle}>No Transactions</Text>
+      <Text style={styles.emptyText}>{message}</Text>
+    </View>
   );
 
   if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#4A90C4" />
+        <Text style={styles.loadingText}>Loading transactions...</Text>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <Tab
-        value={activeTab}
-        onChange={e => setActiveTab(e)}
-        indicatorStyle={styles.tabIndicator}>
-        <Tab.Item
-          title="PENDING"
-          titleStyle={activeTab === 0 ? styles.activeTabTitle : styles.tabTitle}
-          containerStyle={styles.tabContainer}
-        />
-        <Tab.Item
-          title="COMPLETED"
-          titleStyle={activeTab === 1 ? styles.activeTabTitle : styles.tabTitle}
-          containerStyle={styles.tabContainer}
-        />
-      </Tab>
+      {/* Header */}
+      {/*<LinearGradient*/}
+      {/*  colors={['#F9FAFB', '#FFFFFF']}*/}
+      {/*  style={styles.headerGradient}*/}
+      {/*>*/}
+      {/*  <View style={styles.header}>*/}
+      {/*    <Text style={styles.headerTitle}>Transactions</Text>*/}
+      {/*    <TouchableOpacity style={styles.filterButton}>*/}
+      {/*      <Feather name="filter" size={20} color="#4A90C4" />*/}
+      {/*    </TouchableOpacity>*/}
+      {/*  </View>*/}
+      {/*</LinearGradient>*/}
 
+      {/* Tabs */}
+      <View style={styles.tabsContainer}>
+        <Tab
+          value={activeTab}
+          onChange={e => setActiveTab(e)}
+          indicatorStyle={styles.tabIndicator}
+          containerStyle={styles.tabBar}
+        >
+          <Tab.Item
+            title={`PENDING (${pendingTransactions.length})`}
+            titleStyle={activeTab === 0 ? styles.activeTabTitle : styles.tabTitle}
+            containerStyle={styles.tabItemContainer}
+          />
+          <Tab.Item
+            title={`COMPLETED (${completedTransactions.length})`}
+            titleStyle={activeTab === 1 ? styles.activeTabTitle : styles.tabTitle}
+            containerStyle={styles.tabItemContainer}
+          />
+        </Tab>
+      </View>
+
+      {/* Tab Content */}
       <TabView value={activeTab} onChange={setActiveTab} animationType="spring">
         <TabView.Item style={styles.tabViewItem}>
           <FlatList
@@ -244,13 +320,11 @@ const TransactionScreen: React.FC<HomeScreenProps> = () => {
             keyExtractor={item =>
               item.id?.toString() || Math.random().toString()
             }
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>
-                No pending transactions found
-              </Text>
-            }
+            ListEmptyComponent={renderEmptyState('No pending transactions found')}
             refreshing={refreshing}
             onRefresh={handleRefresh}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
           />
         </TabView.Item>
         <TabView.Item style={styles.tabViewItem}>
@@ -260,13 +334,11 @@ const TransactionScreen: React.FC<HomeScreenProps> = () => {
             keyExtractor={item =>
               item.id?.toString() || Math.random().toString()
             }
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>
-                No completed transactions found
-              </Text>
-            }
+            ListEmptyComponent={renderEmptyState('No completed transactions found')}
             refreshing={refreshing}
             onRefresh={handleRefresh}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
           />
         </TabView.Item>
       </TabView>
@@ -277,79 +349,201 @@ const TransactionScreen: React.FC<HomeScreenProps> = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  headerGradient: {
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  filterButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'white',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabsContainer: {
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  tabBar: {
+    backgroundColor: 'transparent',
   },
   tabIndicator: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#4A90C4',
     height: 3,
   },
+  tabItemContainer: {
+    backgroundColor: 'transparent',
+  },
   tabTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#9CA3AF',
   },
   activeTabTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#007AFF',
-  },
-  tabContainer: {
-    backgroundColor: 'transparent',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1F2937',
   },
   tabViewItem: {
     width: '100%',
+    backgroundColor: '#F9FAFB',
   },
-  transactionItem: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+  listContent: {
+    padding: 5,
+    paddingBottom: 32,
   },
-  transactionHeader: {
+  transactionCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    backgroundColor: 'white',
+    borderRadius: 16,
     marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 0.5,
+    overflow: 'hidden',
+  },
+  accentBorder: {
+    width: 4,
+  },
+  cardContent: {
+    flex: 1,
+    padding: 16,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  headerInfo: {
+    flex: 1,
   },
   transactionType: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  meterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   meterInfo: {
-    fontSize: 10,
-    color: '#666',
-    marginTop: 4,
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  amountContainer: {
+    alignItems: 'flex-end',
+  },
+  currencyLabel: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginBottom: 2,
   },
   transactionAmount: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    color: '#1F2937',
   },
-  transactionDetails: {
-    marginTop: 8,
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  detailText: {
-    fontSize: 13,
-    marginBottom: 6,
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 4,
   },
-  detailLabel: {
+  statusText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  dateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dateText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#555',
+    color: '#9CA3AF',
   },
-  detailValue: {
-    fontSize:13,
-    fontWeight: '600',
-    color: '#333',
+  arrowContainer: {
+    justifyContent: 'center',
+    paddingRight: 12,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+    paddingHorizontal: 40,
+  },
+  emptyIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
   },
   emptyText: {
+    fontSize: 14,
+    color: '#9CA3AF',
     textAlign: 'center',
-    marginTop: 20,
-    color: '#666',
-    fontSize: 16,
+    lineHeight: 20,
   },
 });
 

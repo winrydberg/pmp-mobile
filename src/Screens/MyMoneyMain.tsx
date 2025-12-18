@@ -6,24 +6,31 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
-  Alert,
+  TouchableOpacity,
+  Animated,
 } from 'react-native';
-import {Avatar, Divider, ListItem, BottomSheet} from '@rneui/themed';
-import Ionicons from 'react-native-vector-icons/Ionicons';
+import {Image} from 'react-native';
+import Feather from 'react-native-vector-icons/Feather';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation} from '@react-navigation/native';
 import {StackNavigationProp} from '@react-navigation/stack';
 import {AppStackParamList} from '../types/navigation';
-// import {SecondaryBtn, PrimaryBtn} from '../components';
 import {Wallet, WalletsResponse} from '../types/wallet';
 import {GetWallets, SetDefaultWallet} from '../services/WalletService';
-import {Image} from '@rneui/base';
-import { SecondaryBtn } from '../components/SecondaryBtn';
-import { PrimaryBtn } from '../components/PrimaryBtn';
+import Toast from 'react-native-toast-message';
+import LinearGradient from 'react-native-linear-gradient';
+import {Modal} from 'react-native';
 
 const networkLogos: Record<string, any> = {
   MTN: require('../assets/logos/mtn_logo.png'),
   TELECEL: require('../assets/logos/vodafone_logo.jpg'),
   AIRTELTIGO: require('../assets/logos/airteltigo_logo.jpg'),
+};
+
+const networkColors: Record<string, string[]> = {
+  MTN: ['#FFCC00', '#FFB300'],
+  TELECEL: ['#E60000', '#C70000'],
+  AIRTELTIGO: ['#ED1C24', '#B71C1C'],
 };
 
 interface MyMoneyMainProps {
@@ -43,8 +50,29 @@ const MyMoneyMain: React.FC<MyMoneyMainProps> = ({route}) => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<Wallet[]>([]);
-  const [isBottomSheetVisible, setIsBottomSheetVisible] = useState(false);
+  const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
+  const [isSettingDefault, setIsSettingDefault] = useState(false);
+
+  // Animation values
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const slideAnim = React.useRef(new Animated.Value(20)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 20,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   const fetchWallets = async () => {
     try {
@@ -82,32 +110,60 @@ const MyMoneyMain: React.FC<MyMoneyMainProps> = ({route}) => {
 
   const handleWalletPress = (wallet: Wallet) => {
     if (wallet.IsDefault) {
-      Alert.alert('Info', 'This is already your default payment method');
+      Toast.show({
+        type: 'info',
+        text1: 'Default Payment',
+        text2: 'This is already your default payment method',
+        position: 'top',
+        visibilityTime: 2000,
+        topOffset: 60,
+      });
       return;
     }
     setSelectedWallet(wallet);
-    setIsBottomSheetVisible(true);
+    setIsModalVisible(true);
   };
 
   const handleSetDefault = async () => {
     if (!selectedWallet) return;
-    
+
     try {
-      setIsBottomSheetVisible(false);
-      setLoading(true);
-      
+      setIsSettingDefault(true);
+
       const response = await SetDefaultWallet(selectedWallet.EqUuid);
-      
+
       if (response.success === true) {
-        await fetchWallets(); // Refresh the list
-        Alert.alert('Success', 'Default payment method updated');
+        await fetchWallets();
+        setIsModalVisible(false);
+        Toast.show({
+          type: 'success',
+          text1: 'Success!',
+          text2: 'Default payment method updated',
+          position: 'top',
+          visibilityTime: 3000,
+          topOffset: 60,
+        });
       } else {
-        Alert.alert('Error', response.message || 'Failed to update default payment method');
+        Toast.show({
+          type: 'error',
+          text1: 'Error',
+          text2: response.message || 'Failed to update default payment method',
+          position: 'top',
+          visibilityTime: 4000,
+          topOffset: 60,
+        });
       }
     } catch (error) {
-      Alert.alert('Error', 'An error occurred while updating default payment method');
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'An error occurred while updating',
+        position: 'top',
+        visibilityTime: 4000,
+        topOffset: 60,
+      });
     } finally {
-      setLoading(false);
+      setIsSettingDefault(false);
     }
   };
 
@@ -116,7 +172,8 @@ const MyMoneyMain: React.FC<MyMoneyMainProps> = ({route}) => {
   if (isLoading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color="#4A90C4" />
+        <Text style={styles.loadingText}>Loading payment methods...</Text>
       </View>
     );
   }
@@ -124,13 +181,24 @@ const MyMoneyMain: React.FC<MyMoneyMainProps> = ({route}) => {
   if (error && !refreshing) {
     return (
       <View style={styles.errorContainer}>
+        <View style={styles.errorIconContainer}>
+          <Feather name="alert-circle" size={64} color="#EF4444" />
+        </View>
+        <Text style={styles.errorTitle}>Oops!</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <SecondaryBtn
+        <TouchableOpacity
+          style={styles.retryButton}
           onPress={onRefresh}
-          icon={<Ionicons name="refresh" color={'white'} size={16} />}
-          loading={refreshing}
-          title="Try Again"
-        />
+          activeOpacity={0.8}>
+          <LinearGradient
+            colors={['#4A90C4', '#3B7FB5']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={styles.retryGradient}>
+            <Feather name="refresh-cw" size={18} color="#FFFFFF" />
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </LinearGradient>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -138,209 +206,553 @@ const MyMoneyMain: React.FC<MyMoneyMainProps> = ({route}) => {
   return (
     <>
       <ScrollView
-        contentContainerStyle={styles.container}
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            colors={['#30a280']}
-            tintColor="#30a280"
+            colors={['#4A90C4']}
+            tintColor="#4A90C4"
           />
         }>
-        {/* Active Account */}
-        <View style={styles.activeAccountContainer}>
-          <View>
-            <Text style={styles.activeAccountLabel}>Active Account:</Text>
-            {defaultPaymentMethod ? (
-              <Text style={styles.activeAccountNumber}>
-                {defaultPaymentMethod.AccNumber}
-              </Text>
-            ) : (
-              <Text style={styles.noAccountText}>N/A</Text>
-            )}
-          </View>
-          <SecondaryBtn
-            onPress={() =>
-              navigation.push('AddWallet', {
-                callback: () => callbackRefresher(),
-              })
-            }
-            icon={<Ionicons name="add-circle" color={'white'} size={16} />}
-            loading={false}
-            title="Add Payment Method"
-          />
-        </View>
+        {/* Header Section */}
+        <Animated.View
+          style={[
+            styles.headerSection,
+            {
+              opacity: fadeAnim,
+              transform: [{translateY: slideAnim}],
+            },
+          ]}>
+          <Text style={styles.headerTitle}>Payment Methods</Text>
+          <Text style={styles.headerSubtitle}>
+            Manage your mobile money accounts
+          </Text>
+        </Animated.View>
 
-        <Divider style={styles.divider} />
+        {/* Default Payment Card */}
+        {defaultPaymentMethod && (
+          <Animated.View
+            style={[
+              styles.defaultCardWrapper,
+              {
+                opacity: fadeAnim,
+                transform: [{translateY: slideAnim}],
+              },
+            ]}>
+            <LinearGradient
+              colors={
+                networkColors[defaultPaymentMethod.Network] || [
+                  '#4A90C4',
+                  '#34B87C',
+                ]
+              }
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={styles.defaultCard}>
+              <View style={styles.defaultCardHeader}>
+                <View style={styles.defaultBadge}>
+                  <Feather name="star" size={14} color="#FCD34D" />
+                  <Text style={styles.defaultBadgeText}>Default</Text>
+                </View>
+                <Image
+                  source={networkLogos[defaultPaymentMethod.Network]}
+                  style={styles.defaultCardLogo}
+                  resizeMode="contain"
+                />
+              </View>
+              <View style={styles.defaultCardBody}>
+                <Text style={styles.defaultCardLabel}>Active Account</Text>
+                <Text style={styles.defaultCardNumber}>
+                  {defaultPaymentMethod.AccNumber}
+                </Text>
+                <Text style={styles.defaultCardNetwork}>
+                  {defaultPaymentMethod.Network}
+                </Text>
+              </View>
+            </LinearGradient>
+          </Animated.View>
+        )}
+
+        {/* Add Payment Button */}
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() =>
+            navigation.push('AddWallet', {
+              callback: () => callbackRefresher(),
+            })
+          }
+          activeOpacity={0.8}>
+          <LinearGradient
+            colors={['#34B87C', '#2DA771']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={styles.addGradient}>
+            <Feather name="plus-circle" size={20} color="#FFFFFF" />
+            <Text style={styles.addButtonText}>Add Wallet</Text>
+          </LinearGradient>
+        </TouchableOpacity>
 
         {/* Payment Methods List */}
-        {paymentMethods.length === 0 ? (
-          <View style={styles.noMethodsContainer}>
-            <Text style={styles.noMethodsTitle}>No payment methods found</Text>
-            <Text style={styles.noMethodsText}>
-              You haven't added any payment methods yet.
-            </Text>
-          </View>
-        ) : (
-          paymentMethods.map(method => (
-            <ListItem
-              key={method.id}
-              bottomDivider
-              onPress={() => handleWalletPress(method)}>
-              <Image
-                source={networkLogos[method.Network]}
-                style={styles.imageStyle}
-                PlaceholderContent={<ActivityIndicator />}
-              />
-              <ListItem.Content>
-                <ListItem.Title style={styles.listItemTitle}>
-                  {method.Network}
-                </ListItem.Title>
-                <ListItem.Subtitle style={styles.listItemSubtitle}>
-                  {method.AccNumber}
-                </ListItem.Subtitle>
-              </ListItem.Content>
-              {method.IsDefault && (
-                <Ionicons name="checkmark-circle" size={20} color="green" />
-              )}
-              <ListItem.Chevron />
-            </ListItem>
-          ))
-        )}
+        <View style={styles.listSection}>
+          <Text style={styles.listTitle}>All Payment Methods</Text>
+
+          {paymentMethods.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconContainer}>
+                <Feather name="credit-card" size={64} color="#D1D5DB" />
+              </View>
+              <Text style={styles.emptyTitle}>No Payment Methods</Text>
+              <Text style={styles.emptyText}>
+                You haven't added any payment methods yet. Add one to get
+                started!
+              </Text>
+            </View>
+          ) : (
+            paymentMethods.map((method, index) => (
+              <Animated.View
+                key={method.id}
+                style={[
+                  {
+                    opacity: fadeAnim,
+                    transform: [
+                      {
+                        translateY: fadeAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [20 * (index + 1), 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}>
+                <TouchableOpacity
+                  style={styles.methodCard}
+                  onPress={() => handleWalletPress(method)}
+                  activeOpacity={0.7}>
+                  <View style={styles.methodIconContainer}>
+                    <Image
+                      source={networkLogos[method.Network]}
+                      style={styles.methodIcon}
+                      resizeMode="contain"
+                    />
+                  </View>
+
+                  <View style={styles.methodContent}>
+                    <Text style={styles.methodNetwork}>{method.Network}</Text>
+                    <Text style={styles.methodNumber}>{method.AccNumber}</Text>
+                  </View>
+
+                  <View style={styles.methodRight}>
+                    {method.IsDefault ? (
+                      <View style={styles.defaultIndicator}>
+                        <Feather name="check-circle" size={20} color="#34B87C" />
+                        <Text style={styles.defaultText}>Default</Text>
+                      </View>
+                    ) : (
+                      <Feather name="chevron-right" size={20} color="#D1D5DB" />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              </Animated.View>
+            ))
+          )}
+        </View>
       </ScrollView>
 
-      {/* Bottom Sheet for setting default wallet */}
-      <BottomSheet
-        isVisible={isBottomSheetVisible}
-        onBackdropPress={() => setIsBottomSheetVisible(false)}
-        containerStyle={styles.bottomSheetContainer}>
-        <View style={styles.bottomSheetContent}>
-          <Text style={styles.bottomSheetTitle}>Set as Default?</Text>
-          <Text style={styles.bottomSheetText}>
-            Do you want to set {selectedWallet?.Network} ({selectedWallet?.AccNumber}) 
-            as your default payment method?
-          </Text>
-          
-          <View style={styles.bottomSheetButtons}>
-            <SecondaryBtn
-              title="Cancel"
-              onPress={() => setIsBottomSheetVisible(false)}
-              containerStyle={styles.bottomSheetButton}
-            />
-            <PrimaryBtn
-              title="Set as Default"
-              onPress={handleSetDefault}
-              containerStyle={styles.bottomSheetButton}
-              loading={isLoading}
-            />
-          </View>
-        </View>
-      </BottomSheet>
+      {/* Set Default Modal */}
+      <Modal
+        visible={isModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsModalVisible(false)}>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setIsModalVisible(false)}>
+          <TouchableOpacity
+            style={styles.modalContent}
+            activeOpacity={1}
+            onPress={e => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconContainer}>
+                <MaterialCommunityIcons
+                  name="wallet-outline"
+                  size={32}
+                  color="#4A90C4"
+                />
+              </View>
+              <Text style={styles.modalTitle}>Set as Default?</Text>
+              <Text style={styles.modalText}>
+                Do you want to set {selectedWallet?.Network} (
+                {selectedWallet?.AccNumber}) as your default payment method?
+              </Text>
+            </View>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setIsModalVisible(false)}
+                activeOpacity={0.8}>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.confirmButton,
+                  isSettingDefault && styles.confirmButtonDisabled,
+                ]}
+                onPress={handleSetDefault}
+                disabled={isSettingDefault}
+                activeOpacity={0.8}>
+                <LinearGradient
+                  colors={
+                    isSettingDefault
+                      ? ['#9CA3AF', '#6B7280']
+                      : ['#34B87C', '#2DA771']
+                  }
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 0}}
+                  style={styles.confirmGradient}>
+                  {isSettingDefault ? (
+                    <>
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <Text style={styles.confirmButtonText}>Setting...</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Feather name="check" size={18} color="#FFFFFF" />
+                      <Text style={styles.confirmButtonText}>
+                        Set as Default
+                      </Text>
+                    </>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Toast />
     </>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    padding: 10,
-    flexGrow: 1,
-    backgroundColor: 'white',
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 40,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#6B7280',
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    backgroundColor: '#F9FAFB',
   },
-  activeAccountContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  errorIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#FEF2F2',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
-  activeAccountLabel: {
-    fontSize: 16,
-    color: '#666',
-  },
-  activeAccountNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  noAccountText: {
-    color: 'gray',
-    fontStyle: 'italic',
-  },
-  divider: {
-    backgroundColor: '#ddd',
-    marginVertical: 20,
-    height: 1,
+  errorTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
   },
   errorText: {
-    color: 'red',
-    marginBottom: 20,
+    fontSize: 15,
+    color: '#6B7280',
     textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
   },
-  noMethodsContainer: {
+  retryButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  retryGradient: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 40,
-    paddingHorizontal: 20,
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    gap: 8,
   },
-  noMethodsTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  noMethodsText: {
-    textAlign: 'center',
-    color: '#666',
-  },
-  listItemTitle: {
-    fontWeight: 'bold',
-  },
-  listItemSubtitle: {
-    color: '#666',
-  },
-  imageStyle: {
-    aspectRatio: 1,
-    width: 50,
-    height: 50,
-    resizeMode: 'contain',
-  },
-  bottomSheetContainer: {
-    // backgroundColor: 'white',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    // borderTopLeftRadius: 20,
-    // borderTopRightRadius: 20,
-    // padding: 20,
-  },
-  bottomSheetContent: {
-    backgroundColor: 'white',
-    padding: 10,
-  },
-  bottomSheetTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  bottomSheetText: {
+  retryButtonText: {
     fontSize: 16,
-    marginBottom: 20,
-    textAlign: 'center',
-    color: '#666',
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
-  bottomSheetButtons: {
+  headerSection: {
+    marginBottom: 24,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    color: '#6B7280',
+  },
+  defaultCardWrapper: {
+    marginBottom: 20,
+  },
+  defaultCard: {
+    borderRadius: 16,
+    padding: 20,
+    minHeight: 150,
+  },
+  defaultCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 20,
+    alignItems: 'center',
+    marginBottom: 20,
   },
-  bottomSheetButton: {
-    width: '48%',
+  defaultBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
+  },
+  defaultBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  defaultCardLogo: {
+    width: 50,
+    height: 50,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    padding: 6,
+  },
+  defaultCardBody: {
+    marginTop: 8,
+  },
+  defaultCardLabel: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.7)',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  defaultCardNumber: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 4,
+    letterSpacing: 1,
+  },
+  defaultCardNetwork: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  addButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 32,
+  },
+  addGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 10,
+  },
+  addButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  listSection: {
+    marginBottom: 20,
+  },
+  listTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  methodCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  methodIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  methodIcon: {
+    width: 40,
+    height: 40,
+  },
+  methodContent: {
+    flex: 1,
+  },
+  methodNetwork: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  methodNumber: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  methodRight: {
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+  },
+  defaultIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  defaultText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#34B87C',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+  },
+  emptyIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalText: {
+    fontSize: 15,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  confirmButton: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  confirmButtonDisabled: {
+    opacity: 0.7,
+  },
+  confirmGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
+  },
+  confirmButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });
 

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, {useState, useRef, useEffect} from 'react';
 import {
   SafeAreaView,
   KeyboardAvoidingView,
@@ -10,13 +10,14 @@ import {
   StyleSheet,
   TextInput,
 } from 'react-native';
-import { Input, Button, Icon, Image } from '@rneui/themed';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
+import {Input, Button, Icon, Image} from '@rneui/themed';
+import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
+import {StackNavigationProp} from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
-import { AuthStackParamList } from '../types/navigation';
-import { PrimaryBtn } from '../components/PrimaryBtn';
-import { useAuth } from '../Context/AuthContext';
+import {AuthStackParamList} from '../types/navigation';
+import {PrimaryBtn} from '../components/PrimaryBtn';
+import {useAuth} from '../Context/AuthContext';
+import {baseURL} from '../helpers/constants';
 
 type OtpScreenRouteParams = {
   email: string;
@@ -24,17 +25,26 @@ type OtpScreenRouteParams = {
 
 const OtpScreen = () => {
   const navigation = useNavigation<StackNavigationProp<AuthStackParamList>>();
-  const route = useRoute();
-  const { email } = route.params as OtpScreenRouteParams;
-  const { verifyOtp, isLoading, error, clearError } = useAuth();
+  const route =
+    useRoute<RouteProp<Record<string, OtpScreenRouteParams>, string>>();
+  const {email} = route.params as OtpScreenRouteParams;
+  const {verifyOtp, isLoading, error, clearError, handleResendOtp} = useAuth();
 
   const [otp, setOtp] = useState<string[]>(['', '', '', '', '', '']);
   const [localError, setLocalError] = useState<string>('');
   const inputRefs = useRef<(TextInput | null)[]>([]);
 
+  // resend cooldown state
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
+  const cooldownSeconds = 30;
+  const cooldownTimer = useRef<NodeJS.Timeout | null>(null);
+
   // Clear errors when component mounts
   useEffect(() => {
     clearError();
+    return () => {
+      if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+    };
   }, []);
 
   // Show auth context errors in toast
@@ -89,7 +99,6 @@ const OtpScreen = () => {
 
     try {
       await verifyOtp(email, otpValue);
-      // On success, navigation is handled by AuthContext
       Toast.show({
         type: 'success',
         text1: 'Success',
@@ -97,28 +106,50 @@ const OtpScreen = () => {
         position: 'bottom',
         visibilityTime: 3000,
       });
-    } catch (err) {
-      // Errors are already handled by AuthContext and useEffect hook
+    } catch {
+      // Handled via useAuth error state and useEffect
     }
   };
 
-  const handleResendOtp = () => {
-    Toast.show({
-      type: 'info',
-      text1: 'OTP Resent',
-      text2: 'A new OTP has been sent to your email',
-      position: 'bottom',
-      visibilityTime: 3000,
-    });
-    // Implement actual OTP resend logic here
+  const startCooldown = () => {
+    setResendCooldown(cooldownSeconds);
+    if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+    cooldownTimer.current = setInterval(() => {
+      setResendCooldown(prev => {
+        if (prev <= 1) {
+          if (cooldownTimer.current) clearInterval(cooldownTimer.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
   };
+
+  const resendOtp = async (email: string) => {
+    if (resendCooldown > 0) return;
+
+    try {
+      startCooldown();
+
+      await handleResendOtp(email);
+
+    } catch (e: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Network Error',
+        text2: 'Please check your connection and try again.',
+        position: 'bottom',
+      });
+    }
+  };
+
+
 
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardAvoidingView}
-      >
+        style={styles.keyboardAvoidingView}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.contentContainer}>
             <View style={styles.formContainer}>
@@ -189,10 +220,14 @@ const OtpScreen = () => {
                 <Text style={styles.resendText}>Didn't receive the OTP? </Text>
                 <Button
                   type="clear"
-                  title="Resend OTP"
+                  title={
+                    resendCooldown > 0
+                      ? `Resend in ${resendCooldown}s`
+                      : 'Resend OTP'
+                  }
                   titleStyle={styles.resendButtonText}
-                  onPress={handleResendOtp}
-                  disabled={isLoading}
+                  onPress={() => resendOtp(email)}
+                  disabled={isLoading || resendCooldown > 0}
                 />
               </View>
             </View>
@@ -200,46 +235,26 @@ const OtpScreen = () => {
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
 
-        <Toast />
+      <Toast />
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-  contentContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  formContainer: {
-    width: '100%',
-    maxWidth: 400,
-    alignSelf: 'center',
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  logo: {
-    width: 150,
-    height: 150,
-  },
+  container: {flex: 1, backgroundColor: '#f5f5f5'},
+  keyboardAvoidingView: {flex: 1},
+  contentContainer: {flex: 1, justifyContent: 'center', paddingHorizontal: 20},
+  formContainer: {width: '100%', maxWidth: 400, alignSelf: 'center'},
+  logoContainer: {alignItems: 'center', marginBottom: 30},
+  logo: {width: 150, height: 150},
   title: {
-    fontSize: 28,
+    fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
-    color: '#2089dc',
+    color: 'black',
     marginBottom: 10,
   },
   subtitle: {
-    fontSize: 16,
     textAlign: 'center',
     color: '#666',
     marginBottom: 30,
@@ -253,19 +268,13 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 5,
   },
-  errorText: {
-    color: '#ff4444',
-    marginLeft: 5,
-  },
+  errorText: {color: '#ff4444', marginLeft: 5},
   otpContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 30,
   },
-  otpInputContainer: {
-    width: '15%',
-    paddingHorizontal: 0,
-  },
+  otpInputContainer: {width: '15%', paddingHorizontal: 0},
   otpInput: {
     borderBottomWidth: 0,
     backgroundColor: '#fff',
@@ -275,27 +284,16 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: 'center',
   },
-  errorInput: {
-    borderColor: '#ff4444',
-  },
-  otpInputText: {
-    textAlign: 'center',
-    fontSize: 20,
-  },
+  errorInput: {borderColor: '#ff4444'},
+  otpInputText: {textAlign: 'center', fontSize: 20},
   resendContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 20,
   },
-  resendText: {
-    color: '#666',
-  },
-  resendButtonText: {
-    color: '#2089dc',
-    fontSize: 16,
-    paddingHorizontal: 0,
-  },
+  resendText: {color: '#666'},
+  resendButtonText: {color: '#2089dc', fontSize: 16, paddingHorizontal: 0},
 });
 
 export default OtpScreen;

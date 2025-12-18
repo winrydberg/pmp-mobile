@@ -1,6 +1,7 @@
 // src/services/PaymentService.ts
 import { BuyPowerResponse, PaymentConfirmationResponse, TransactionsResponse } from '../Types/Transaction';
 import apiClient from './apiClient';
+import { Alert } from 'react-native';
 // import { ApiResponse } from '../types/api';
 
 interface MakePaymentPayload {
@@ -62,27 +63,37 @@ export const MakePayment = async (
 export const ConfirmPayment = async (
     payload: PaymentConfirmationPayload,
 ): Promise<PaymentConfirmationResponse> => {
-
-  
-    // export const MakePayment = async (payload: MakePaymentPayload) => {
     try {
-        const response = await apiClient.post('/confirm-payment', {
+        console.log('ConfirmPayment called with payload:', payload);
+
+        // Validate that TxnID is present before making the request
+        if (!payload.TxnID) {
+            console.error('ConfirmPayment: TxnID is missing');
+            return {
+                status: 'error',
+                message: 'Transaction ID is required',
+                data: null,
+            };
+        }
+
+        // Only send the transactionId, as phoneNo is not used and may cause errors
+        const requestBody = {
             transactionId: payload.TxnID,
-            phoneNo: payload.PhoneNumber
-        });
+        };
 
-       console.log('ConfirmPayment response:', response.data);
+        console.log('ConfirmPayment request body:', requestBody);
 
-        if (
-            response.data?.status === 'success'
-        ) {
+        const response = await apiClient.post('/confirm-payment', requestBody);
+
+        console.log('ConfirmPayment response:', response.data);
+
+        if (response.data?.status === 'success') {
             return {
                 status: 'success',
                 message: response.data.message,
                 data: response.data.data,
             };
-        }
-        else {
+        } else {
             return {
                 status: 'error',
                 message: response.data.message || 'Error fetching payment status',
@@ -90,7 +101,9 @@ export const ConfirmPayment = async (
             };
         }
     } catch (error: any) {
-        console.error('MakePayment error:', error);
+        // Corrected the error message to be specific to this function
+        console.error('ConfirmPayment error:', error);
+        console.error('ConfirmPayment error response:', error.response?.data);
 
         let errorMessage = 'Payment processing failed';
         if (error.response) {
@@ -100,7 +113,7 @@ export const ConfirmPayment = async (
         }
 
         return {
-            status: "error",
+            status: 'error',
             message: errorMessage,
             data: null,
         };
@@ -112,7 +125,8 @@ export const ConfirmPayment = async (
 export const getPendingTransactions = async (): Promise<TransactionsResponse> => {
   try {
     const response = await apiClient.get('/pending-transactions');
-    
+
+    // Alert.alert(JSON.stringify(response.data, null, 2));
     // Validate response structure
     if (response.data?.status === 'success' && Array.isArray(response.data.data)) {
       return {
@@ -121,12 +135,14 @@ export const getPendingTransactions = async (): Promise<TransactionsResponse> =>
         data: response.data.data
       };
     }
-    
+
     throw new Error('Invalid response structure');
-    
+
   } catch (error: any) {
     console.log('GetAllMeters error:', error);
-    
+
+    // Alert.alert(JSON.stringify(error, null, 2));
+
     let errorMessage = 'Failed to fetch transactions';
     if (error.response) {
       // Handle different HTTP status codes
@@ -140,7 +156,7 @@ export const getPendingTransactions = async (): Promise<TransactionsResponse> =>
     } else if (error.message) {
       errorMessage = error.message;
     }
-    
+
     return {
       status: 'error',
       message: errorMessage,
@@ -157,7 +173,7 @@ export const getPendingTransactions = async (): Promise<TransactionsResponse> =>
 export const getCompletedTransactions = async (): Promise<TransactionsResponse> => {
   try {
     const response = await apiClient.get('/completed-transactions');
-    
+
     // Validate response structure
     if (response.data?.status === 'success' && Array.isArray(response.data.data)) {
       return {
@@ -166,12 +182,12 @@ export const getCompletedTransactions = async (): Promise<TransactionsResponse> 
         data: response.data.data
       };
     }
-    
+
     throw new Error('Invalid response structure');
-    
+
   } catch (error: any) {
     console.log('GetAllMeters error:', error);
-    
+
     let errorMessage = 'Failed to fetch transactions';
     if (error.response) {
       // Handle different HTTP status codes
@@ -185,7 +201,7 @@ export const getCompletedTransactions = async (): Promise<TransactionsResponse> 
     } else if (error.message) {
       errorMessage = error.message;
     }
-    
+
     return {
       status: 'error',
       message: errorMessage,
@@ -239,8 +255,6 @@ export const CancelTransaction = async (
 };
 
 
-
-
 export const CheckMeterChargingStatus = async (
     payload: { TxnID: string }
 ): Promise<{
@@ -282,4 +296,46 @@ export const CheckMeterChargingStatus = async (
             data: null,
         };
     }
+};
+
+
+// Then create the function
+export const getRecentTransactions = async (): Promise<TransactionsResponse> => {
+  try {
+    const response = await apiClient.get('/recent-transactions');
+
+    // Validate response structure
+    if (response.data?.status === 'success' && Array.isArray(response.data.data)) {
+      return {
+        status: 'success',
+        message: response.data.message || 'Transactions fetched successfully',
+        data: response.data.data
+      };
+    }
+
+    throw new Error('Invalid response structure');
+
+  } catch (error: any) {
+    console.log('GetAllMeters error:', error);
+
+    let errorMessage = 'Failed to fetch transactions';
+    if (error.response) {
+      // Handle different HTTP status codes
+      if (error.response.status === 404) {
+        errorMessage = 'No meters found for this user';
+      } else if (error.response.status === 401) {
+        errorMessage = 'Authentication required';
+      } else {
+        errorMessage = error.response.data?.message || errorMessage;
+      }
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    return {
+      status: 'error',
+      message: errorMessage,
+      data: []
+    };
+  }
 };

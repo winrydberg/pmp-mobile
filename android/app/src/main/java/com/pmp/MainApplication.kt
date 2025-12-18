@@ -1,4 +1,4 @@
-package com.pmp
+package com.blibo.pmp
 
 import android.app.Application
 import com.facebook.react.PackageList

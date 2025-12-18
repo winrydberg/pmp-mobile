@@ -10,11 +10,12 @@ import {
     TouchableOpacity,
     Dimensions,
 } from 'react-native';
-import {Text} from '@rneui/themed';
+import {Button, Text} from '@rneui/themed';
 import Feather from 'react-native-vector-icons/Feather';
 import {useNavigation} from '@react-navigation/native';
 import {StackNavigationProp} from '@react-navigation/stack';
 import {AppStackParamList} from '../types/navigation';
+import {primaryBtnColor} from '../helpers/colors';
 import Toast from 'react-native-toast-message';
 import {TransactionItem} from '../Types/Transaction';
 import {baseURL} from '../helpers/constants';
@@ -34,23 +35,12 @@ interface TransactionReceiptProps {
     };
 }
 
-interface PdfResponse {
-    success: boolean;
-    message: string;
-    data: {
-        filename: string;
-        pdf_base64: string;
-        mime_type: string;
-    };
-}
-
-const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) => {
+const TransactionReceipt: React.FC<TransactionReceiptProps> = ({route}) => {
     const {transaction} = route.params;
     const navigation = useNavigation<StackNavigationProp<AppStackParamList>>();
 
     const [loading, setLoading] = useState<boolean>(true);
-    const [pdfBase64, setPdfBase64] = useState<string>('');
-    const [pdfFilename, setPdfFilename] = useState<string>('');
+    const [pdfPath, setPdfPath] = useState<string>('');
     const [downloading, setDownloading] = useState<boolean>(false);
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [totalPages, setTotalPages] = useState<number>(0);
@@ -110,7 +100,7 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
             setLoading(true);
 
             const transactionId = transaction.EqUuid || transaction.id;
-            const url = `${baseURL}/api/transactions/${transactionId}/receipt/pdf`;
+            const url = `${baseURL}/api/transactions/${transactionId}/receipt/download`;
 
             console.log('Fetching PDF from:', url);
 
@@ -122,32 +112,33 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
                 token = authData.token;
             }
 
-            // Fetch the PDF as base64
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: token
+            // Download the PDF file
+            const {dirs} = ReactNativeBlobUtil.fs;
+            const downloadPath = `${dirs.DocumentDir}/receipt-${transactionId}.pdf`;
+
+            const response = await ReactNativeBlobUtil.config({
+                path: downloadPath,
+                fileCache: true,
+            }).fetch(
+                'GET',
+                url,
+                token
                     ? {
                           Authorization: `Bearer ${token}`,
-                          'Content-Type': 'application/json',
+                          'Content-Type': 'application/pdf',
                       }
-                    : {'Content-Type': 'application/json'},
-            });
+                    : {'Content-Type': 'application/pdf'}
+            );
 
-            console.log('Fetch response status:', response);
+            const statusCode = response.info().status;
 
-            if (!response.ok) {
-                throw new Error(`Failed to fetch PDF. Status: ${response.status}`);
-            }
-
-            const responseData: PdfResponse = await response.json();
-
-            if (responseData.success && responseData.data.pdf_base64) {
-                console.log('PDF received successfully');
-                setPdfBase64(responseData.data.pdf_base64);
-                setPdfFilename(responseData.data.filename || `receipt-${transactionId}.pdf`);
+            if (statusCode === 200) {
+                const path = response.path();
+                console.log('PDF downloaded to:', path);
+                setPdfPath(path);
                 setLoading(false);
             } else {
-                throw new Error(responseData.message || 'Failed to generate PDF');
+                throw new Error(`Failed to download PDF. Status: ${statusCode}`);
             }
         } catch (err: any) {
             console.error('Error fetching PDF:', err);
@@ -162,11 +153,17 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
     };
 
     const handleGoBack = () => {
+        // Clean up the downloaded file
+        if (pdfPath) {
+            ReactNativeBlobUtil.fs.unlink(pdfPath).catch((err) => {
+                console.error('Error deleting PDF:', err);
+            });
+        }
         navigation.goBack();
     };
 
     const handleShare = async () => {
-        if (!pdfBase64) {
+        if (!pdfPath) {
             Toast.show({
                 type: 'error',
                 text1: 'Error',
@@ -176,29 +173,15 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
         }
 
         try {
-            // Create a temporary file to share
-            const {dirs} = ReactNativeBlobUtil.fs;
-            const tempPath = `${dirs.CacheDir}/${pdfFilename}`;
-
-            // Write base64 to file
-            await ReactNativeBlobUtil.fs.writeFile(tempPath, pdfBase64, 'base64');
-
             const shareOptions = {
                 title: 'Transaction Receipt',
                 message: `Transaction Receipt - ${transaction.EqUuid}`,
-                url: Platform.OS === 'android' ? `file://${tempPath}` : tempPath,
+                url: Platform.OS === 'android' ? `file://${pdfPath}` : pdfPath,
                 type: 'application/pdf',
                 subject: 'Transaction Receipt',
             };
 
             await Share.open(shareOptions);
-
-            // Clean up temp file after sharing
-            setTimeout(() => {
-                ReactNativeBlobUtil.fs.unlink(tempPath).catch((err) => {
-                    console.error('Error deleting temp PDF:', err);
-                });
-            }, 5000);
         } catch (error: any) {
             if (error.message !== 'User did not share') {
                 console.error('Error sharing PDF:', error);
@@ -239,7 +222,7 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
     };
 
     const handleDownload = async () => {
-        if (!pdfBase64) {
+        if (!pdfPath) {
             Toast.show({
                 type: 'error',
                 text1: 'Error',
@@ -265,10 +248,11 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
 
             const {dirs} = ReactNativeBlobUtil.fs;
             const downloadDir = Platform.OS === 'ios' ? dirs.DocumentDir : dirs.DownloadDir;
-            const downloadPath = `${downloadDir}/${pdfFilename}`;
+            const fileName = `receipt-${transaction.EqUuid || transaction.id}.pdf`;
+            const downloadPath = `${downloadDir}/${fileName}`;
 
-            // Write base64 to file
-            await ReactNativeBlobUtil.fs.writeFile(downloadPath, pdfBase64, 'base64');
+            // Copy file to downloads folder
+            await ReactNativeBlobUtil.fs.cp(pdfPath, downloadPath);
 
             setDownloading(false);
 
@@ -282,7 +266,7 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
             if (Platform.OS === 'android') {
                 await ReactNativeBlobUtil.MediaCollection.copyToMediaStore(
                     {
-                        name: pdfFilename,
+                        name: fileName,
                         parentFolder: '',
                         mimeType: 'application/pdf',
                     },
@@ -322,7 +306,7 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
                         <Feather name="file-text" size={48} color="white" />
                     </LinearGradient>
                     <ActivityIndicator size="large" color="#4A90C4" style={styles.loadingSpinner} />
-                    <Text style={styles.loadingTitle}>Generating Receipt</Text>
+                    <Text style={styles.loadingTitle}>Loading Receipt</Text>
                     <Text style={styles.loadingSubtitle}>Please wait while we prepare your receipt...</Text>
                 </Animated.View>
             </SafeAreaView>
@@ -346,16 +330,16 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
                     end={{x: 0, y: 1}}
                     style={styles.headerGradient}
                 >
-                    {/*<TouchableOpacity*/}
-                    {/*    style={styles.backButton}*/}
-                    {/*    onPress={handleGoBack}*/}
-                    {/*    activeOpacity={0.7}*/}
-                    {/*>*/}
-                    {/*    <View style={styles.backButtonContent}>*/}
-                    {/*        <Feather name="arrow-left" size={22} color="#1F2937" />*/}
-                    {/*        <Text style={styles.backButtonText}>Back</Text>*/}
-                    {/*    </View>*/}
-                    {/*</TouchableOpacity>*/}
+                    <TouchableOpacity
+                        style={styles.backButton}
+                        onPress={handleGoBack}
+                        activeOpacity={0.7}
+                    >
+                        <View style={styles.backButtonContent}>
+                            <Feather name="arrow-left" size={22} color="#1F2937" />
+                            <Text style={styles.backButtonText}>Back</Text>
+                        </View>
+                    </TouchableOpacity>
 
                     <View style={styles.centerInfo}>
                         {totalPages > 0 && (
@@ -416,44 +400,45 @@ const TransactionReceiptBase64: React.FC<TransactionReceiptProps> = ({route}) =>
                     },
                 ]}
             >
-                {pdfBase64 ? (
-                    <Pdf
-                        trustAllCerts={false}
-                        source={{
-                            uri: `data:application/pdf;base64,${pdfBase64}`,
-                            cache: false,
-                        }}
-                        enablePaging={false}
-                        horizontal={false}
-                        enableAnnotationRendering={true}
-                        enableDoubleTapZoom={true}
-                        minScale={0.8}
-                        maxScale={5.0}
-                        scale={1.0}
-                        spacing={0}
-                        fitPolicy={2}
-                        onLoadComplete={(numberOfPages) => {
-                            console.log(`PDF loaded with ${numberOfPages} pages`);
-                            setTotalPages(numberOfPages);
-                        }}
-                        onPageChanged={(page, numberOfPages) => {
-                            console.log(`Current page: ${page}/${numberOfPages}`);
-                            setCurrentPage(page);
-                            setTotalPages(numberOfPages);
-                        }}
-                        onError={(error) => {
-                            console.error('PDF error:', error);
-                            Toast.show({
-                                type: 'error',
-                                text1: 'Error',
-                                text2: 'Failed to display PDF',
-                            });
-                        }}
-                        onPressLink={(uri) => {
-                            console.log(`Link pressed: ${uri}`);
-                        }}
-                        style={styles.pdf}
-                    />
+                {pdfPath ? (
+                    <View style={styles.pdfWrapper}>
+                        <Pdf
+                            trustAllCerts={false}
+                            source={{
+                                uri: `file://${pdfPath}`,
+                                cache: true,
+                            }}
+                            enablePaging={true}
+                            horizontal={false}
+                            enableAnnotationRendering={true}
+                            enableDoubleTapZoom={true}
+                            minScale={1.0}
+                            maxScale={6.0}
+                            scale={1.5}
+                            spacing={10}
+                            onLoadComplete={(numberOfPages) => {
+                                console.log(`PDF loaded with ${numberOfPages} pages`);
+                                setTotalPages(numberOfPages);
+                            }}
+                            onPageChanged={(page, numberOfPages) => {
+                                console.log(`Current page: ${page}/${numberOfPages}`);
+                                setCurrentPage(page);
+                                setTotalPages(numberOfPages);
+                            }}
+                            onError={(error) => {
+                                console.error('PDF error:', error);
+                                Toast.show({
+                                    type: 'error',
+                                    text1: 'Error',
+                                    text2: 'Failed to display PDF',
+                                });
+                            }}
+                            onPressLink={(uri) => {
+                                console.log(`Link pressed: ${uri}`);
+                            }}
+                            style={styles.pdf}
+                        />
+                    </View>
                 ) : (
                     <View style={styles.errorContainer}>
                         <View style={styles.errorIconContainer}>
@@ -600,14 +585,14 @@ const styles = StyleSheet.create({
     },
     pdfContainer: {
         flex: 1,
-        // margin: 16,
+        margin: 16,
         borderRadius: 16,
         overflow: 'hidden',
-        elevation: 1,
-        // shadowColor: '#000',
-        // shadowOffset: {width: 0, height: 4},
-        // shadowOpacity: 0.1,
-        // shadowRadius: 12,
+        elevation: 4,
+        shadowColor: '#000',
+        shadowOffset: {width: 0, height: 4},
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
         backgroundColor: 'white',
     },
     pdfWrapper: {
@@ -675,4 +660,4 @@ const styles = StyleSheet.create({
     },
 });
 
-export default TransactionReceiptBase64;
+export default TransactionReceipt;

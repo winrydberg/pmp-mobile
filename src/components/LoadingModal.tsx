@@ -2,6 +2,7 @@
 import { Text } from '@rneui/themed';
 import React from 'react';
 import { Modal, View, ActivityIndicator, StyleSheet, Dimensions } from 'react-native';
+import { secondaryColor } from '../helpers/colors';
 
 interface LoadingModalProps {
   visible: boolean;
@@ -17,7 +18,7 @@ export const LoadingModal: React.FC<LoadingModalProps> = ({ visible, message="Lo
       onRequestClose={() => {}}>
       <View style={styles.modalBackground}>
         <View style={styles.activityIndicatorWrapper}>
-          <ActivityIndicator size="large" color="#0000ff" />
+          <ActivityIndicator size="large" color={secondaryColor} />
           <Text>{message}</Text>
         </View>
         

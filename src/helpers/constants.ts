@@ -1,6 +1,6 @@
-// export const baseURL = 'http://192.168.8.190:8000'
-export const baseURL = 'http://52.13.210.196'
-// export const baseURL = 'http://192.168.114.32:8000'
+// export const baseURL = 'http://192.168.8.104:8000'
+export const baseURL = 'https://app.buypowergh.com' // export const baseURL = 'http://192.168.114.32:8000'
+// export const baseURL = 'http://89.116.29.125'
 
 export const networkLogos: Record<string, any> = {
   MTN: require('../assets/logos/mtn_logo.png'),

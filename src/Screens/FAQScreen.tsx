@@ -1,105 +1,244 @@
-import React, {useState} from 'react';
-import {View, Text, StyleSheet, ScrollView} from 'react-native';
-import { Divider} from '@rneui/themed';
+import React, { useState, useRef } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  ActivityIndicator,
+  TouchableOpacity,
+  Animated,
+} from 'react-native';
+import { WebView } from 'react-native-webview';
 import Feather from 'react-native-vector-icons/Feather';
+import LinearGradient from 'react-native-linear-gradient';
 
-const FAQScreen = () => {
-  const [expandedItems, setExpandedItems] = useState<Record<number, boolean>>({});
+const FAQScreen = ({ navigation }: any) => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  const toggleItem = (index: number) => {
-    setExpandedItems({
-      ...expandedItems,
-      [index]: !expandedItems[index],
-    });
+  const handleLoadEnd = () => {
+    setLoading(false);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
   };
 
-  const faqs = [
-    {
-      question: 'How do I reset my password?',
-      answer: 'You can reset your password by going to the Password & Security section in your account settings and following the prompts.',
-    },
-    {
-      question: 'How can I update my personal information?',
-      answer: 'Navigate to the Personal Information section in settings where you can edit and save your details.',
-    },
-    {
-      question: 'Why am I not receiving notifications?',
-      answer: 'Check your notification preferences in settings to ensure you have enabled the types of notifications you want to receive.',
-    },
-    {
-      question: 'How do I contact customer support?',
-      answer: 'You can reach our support team through the Help Center section in the app or by emailing support@example.com.',
-    },
-    {
-      question: 'Is my payment information secure?',
-      answer: 'Yes, we use industry-standard encryption to protect all your payment information and transactions.',
-    },
-  ];
+  const handleError = () => {
+    setLoading(false);
+    setError(true);
+  };
+
+  const retry = () => {
+    setError(false);
+    setLoading(true);
+  };
+
+  const renderHeader = () => (
+    <View style={styles.headerCard}>
+      <LinearGradient
+        colors={['#4A90C4', '#34B87C']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerGradient}
+      >
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Feather name="arrow-left" size={24} color="white" />
+        </TouchableOpacity>
+        <View style={styles.headerIconContainer}>
+          <Feather name="help-circle" size={24} color="white" />
+        </View>
+        <Text style={styles.headerTitle}>FAQ</Text>
+        <Text style={styles.headerSubtitle}>
+          Frequently Asked Questions
+        </Text>
+      </LinearGradient>
+    </View>
+  );
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        {renderHeader()}
+        <View style={styles.errorContainer}>
+          <View style={styles.errorIconContainer}>
+            <Feather name="wifi-off" size={64} color="#EF4444" />
+          </View>
+          <Text style={styles.errorTitle}>Connection Error</Text>
+          <Text style={styles.errorSubtitle}>
+            Unable to load the FAQ page.{'\n'}
+            Please check your internet connection.
+          </Text>
+          <TouchableOpacity style={styles.retryButton} onPress={retry}>
+            <LinearGradient
+              colors={['#4A90C4', '#34B87C']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.retryButtonGradient}
+            >
+              <Feather name="refresh-cw" size={18} color="white" />
+              <Text style={styles.retryButtonText}>Try Again</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Frequently Asked Questions</Text>
-      
-      {faqs.map((faq, index) => (
-        <View key={index} style={styles.faqItem}>
-          <List.Accordion
-            title={faq.question}
-            isExpanded={expandedItems[index]}
-            onPress={() => toggleItem(index)}
-            containerStyle={styles.accordionContainer}
-            titleStyle={styles.questionText}
-            icon={
-              <Feather
-                name={expandedItems[index] ? 'chevron-up' : 'chevron-down'}
-                size={20}
-              />
-            }>
-            <View style={styles.answerContainer}>
-              <Text style={styles.answerText}>{faq.answer}</Text>
-            </View>
-          </List.Accordion>
-          <Divider />
-        </View>
-      ))}
-    </ScrollView>
+    <View style={styles.container}>
+      <View style={styles.webViewContainer}>
+        {loading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#4A90C4" />
+            <Text style={styles.loadingText}>Loading FAQ...</Text>
+          </View>
+        )}
+        <Animated.View style={[styles.webView, { opacity: fadeAnim }]}>
+          <WebView
+            source={{ uri: 'https://buypowergh.com/frequently-asked-questions/' }}
+            onLoadEnd={handleLoadEnd}
+            onError={handleError}
+            startInLoadingState={true}
+            javaScriptEnabled={true}
+            domStorageEnabled={true}
+            scalesPageToFit={true}
+            style={styles.webView}
+          />
+        </Animated.View>
+      </View>
+    </View>
   );
 };
 
+export default FAQScreen;
+
 const styles = StyleSheet.create({
   container: {
-    padding: 20,
-    backgroundColor: 'white',
-    flexGrow: 1,
+    flex: 1,
+    backgroundColor: '#F9FAFB',
   },
-  title: {
-    fontSize: 22,
-    fontWeight: '600',
-    marginBottom: 20,
-    color: '#333',
+  headerCard: {
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
-  faqItem: {
-    marginBottom: 10,
+  headerGradient: {
+    paddingTop: 50,
+    paddingBottom: 24,
+    paddingHorizontal: 20,
+    alignItems: 'center',
   },
-  accordionContainer: {
-    backgroundColor: 'white',
-    padding: 0,
+  backButton: {
+    position: 'absolute',
+    left: 20,
+    top: 50,
+    zIndex: 10,
   },
-  questionText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
+  headerIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
   },
-  answerContainer: {
-    padding: 15,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    marginTop: 5,
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: 'white',
+    marginBottom: 8,
   },
-  answerText: {
+  headerSubtitle: {
     fontSize: 14,
-    color: '#666',
+    color: 'rgba(255, 255, 255, 0.9)',
+    textAlign: 'center',
+  },
+  webViewContainer: {
+    flex: 1,
+    backgroundColor: 'white',
+    // margin: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 0,
+  },
+  webView: {
+    flex: 1,
+  },
+  loadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    zIndex: 10,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  errorIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  errorSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
     lineHeight: 20,
+    marginBottom: 32,
+  },
+  retryButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  retryButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    gap: 8,
+  },
+  retryButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: 'white',
   },
 });
-
-export default FAQScreen;
